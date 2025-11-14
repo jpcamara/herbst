@@ -1,0 +1,3 @@
+module Herbst
+  VERSION: String
+end
