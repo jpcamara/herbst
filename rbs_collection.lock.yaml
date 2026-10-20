@@ -9,15 +9,11 @@ gems:
     revision: 2ed83ff9ad507c72890dff4bde6b7a2a6a5ca92d
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
+- name: date
+  version: '0'
+  source:
+    type: stdlib
 - name: dbm
-  version: '0'
-  source:
-    type: stdlib
-- name: delegate
-  version: '0'
-  source:
-    type: stdlib
-- name: did_you_mean
   version: '0'
   source:
     type: stdlib
@@ -57,10 +53,6 @@ gems:
     revision: 2ed83ff9ad507c72890dff4bde6b7a2a6a5ca92d
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
-- name: optparse
-  version: '0'
-  source:
-    type: stdlib
 - name: parallel
   version: '1.20'
   source:
@@ -77,10 +69,6 @@ gems:
     revision: 2ed83ff9ad507c72890dff4bde6b7a2a6a5ca92d
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
-- name: pathname
-  version: '0'
-  source:
-    type: stdlib
 - name: pp
   version: '0'
   source:
@@ -157,35 +145,11 @@ gems:
     revision: 2ed83ff9ad507c72890dff4bde6b7a2a6a5ca92d
     remote: https://github.com/ruby/gem_rbs_collection.git
     repo_dir: gems
-- name: socket
-  version: '0'
-  source:
-    type: stdlib
 - name: stringio
   version: '0'
   source:
     type: stdlib
-- name: tempfile
-  version: '0'
-  source:
-    type: stdlib
-- name: time
-  version: '0'
-  source:
-    type: stdlib
-- name: timeout
-  version: '0'
-  source:
-    type: stdlib
-- name: tmpdir
-  version: '0'
-  source:
-    type: stdlib
 - name: tsort
-  version: '0'
-  source:
-    type: stdlib
-- name: yaml
   version: '0'
   source:
     type: stdlib

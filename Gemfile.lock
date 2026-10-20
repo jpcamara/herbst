@@ -1,23 +1,8 @@
-GIT
-  remote: https://github.com/marcoroth/herb.git
-  revision: 68ad43148253854d56d559f7046fa4be8dec71e8
-  branch: main
-  specs:
-    herb (0.11.0)
-    herb (0.11.0-arm64-darwin)
-
-GIT
-  remote: https://github.com/ruby/prism.git
-  revision: c0e37816e97e23e92524a4070e1b99a4025bc63f
-  tag: v1.9.0
-  specs:
-    prism (1.9.0)
-
 PATH
   remote: .
   specs:
     herbst (0.0.1)
-      herb (>= 0.11)
+      herb (>= 0.11.1)
 
 GEM
   remote: https://rubygems.org/
@@ -35,6 +20,8 @@ GEM
       temple (>= 0.8.2)
       thor
       tilt
+    herb (0.11.1)
+    herb (0.11.1-arm64-darwin)
     io-console (0.8.1)
     irb (1.15.3)
       pp (>= 0.6.0)
@@ -56,6 +43,7 @@ GEM
     pp (0.6.3)
       prettyprint
     prettyprint (0.2.0)
+    prism (1.9.0)
     psych (5.2.6)
       date
       stringio
@@ -133,11 +121,9 @@ PLATFORMS
 
 DEPENDENCIES
   haml
-  herb!
   herbst!
   irb
   minitest (~> 5.16)
-  prism!
   rake (~> 13.0)
   rbs-inline
   rubocop (~> 1.21)
