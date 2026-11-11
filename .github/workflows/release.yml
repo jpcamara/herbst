@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  push:
+    name: Push gem with trusted publishing
+    if: github.repository_owner == 'marcoroth'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Vendor the attestation patch from rubygems/release-gem
+      - name: Vendor release-gem patch
+        uses: actions/checkout@v4
+        with:
+          repository: rubygems/release-gem
+          ref: 1c162a739e8b4cb21a676e97b087e8268d8fc40b # v1.1.2
+          path: .github/_release-gem
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+          bundler-cache: true
+
+      - name: Check the tag matches Herbst::VERSION
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(ruby -Ilib -rherbst/version -e 'print Herbst::VERSION')"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag $TAG does not match Herbst::VERSION ($version)"
+            exit 1
+          fi
+
+      - name: Build gem
+        run: gem build herbst.gemspec
+
+      - name: Configure trusted publishing credentials
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
+
+      - name: Push gem with Sigstore attestation
+        env:
+          # Preload the attestation patch so `gem push` generates & attaches the bundle
+          RUBYOPT: "-r${{ github.workspace }}/.github/_release-gem/rubygems-attestation-patch.rb"
+        run: gem push herbst-*.gem
