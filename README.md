@@ -60,8 +60,8 @@ Herb::Engine.new(Herbst::Haml.to_erb(source), escape: true).src
 From the command line:
 
 ```bash
-exe/herbst convert app/views/posts/show.html.haml   # prints the ERB
-exe/herbst convert app/views                        # writes show.html.erb next to show.html.haml or .slim
+herbst convert app/views/posts/show.html.haml   # prints the ERB
+herbst convert app/views                        # writes show.html.erb next to show.html.haml or .slim
 ```
 
 A single file is printed unless you pass `--write`. Directories, and several files at once, are written next to their sources with the `.haml` or `.slim` extension replaced by `.erb`, so `show.html.haml` becomes `show.html.erb`. A file without a format gets `html`, so `show.haml` becomes `show.html.erb`. Pass `--default-format FORMAT` for another format, or `--no-default-format` to write `show.erb`. The Haml and Slim files are kept, and existing ERB files are skipped unless you pass `--force`. Pass `--no-format` to skip the Herb formatter.
