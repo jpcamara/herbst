@@ -52,7 +52,7 @@ class Herbst::Haml::ConverterTest < Minitest::Spec
 
   it "converts case / when / else" do
     haml = "- case x\n- when 1\n  one\n- else\n  other"
-    assert_equal "<% case x %>\n<% when 1 %>\n  one\n<% else %>\n  other\n<% end %>\n", to_erb(haml)
+    assert_equal "<% case x %><% when 1 %>\n  one\n<% else %>\n  other\n<% end %>\n", to_erb(haml)
   end
 
   it "converts begin / rescue / ensure" do

@@ -14,6 +14,10 @@ module Herbst
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS: Array[String]
 
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops.
+      STRICT_LOCALS: Regexp
+
       @options: Hash[Symbol, untyped]
 
       # : (?Hash[Symbol, untyped]) -> void

@@ -19,6 +19,10 @@ module Herbst
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS = ["to_s", "to_json", "to_param", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
 
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops.
+      STRICT_LOCALS = %r{^[ \t]*/(?!!)[ \t]*#[ \t]+(locals:[ \t]+\(.*\))[ \t]*$} #: Regexp
+
       # @rbs @options: Hash[Symbol, untyped]
 
       #: (?Hash[Symbol, untyped]) -> void
@@ -32,6 +36,8 @@ module Herbst
       def convert(source)
         expression = ::Slim::Parser.new(@options).call(source)
         children = join(prepare([expression]), 0)
+        strict_locals = source[STRICT_LOCALS, 1]
+        children.unshift(erb_comment(strict_locals), text("\n")) if strict_locals
 
         finish(document(children))
       rescue ::Slim::Parser::SyntaxError => e

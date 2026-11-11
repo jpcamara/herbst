@@ -118,7 +118,7 @@ module Herbst
     end
 
     #: (String, Array[Herb::AST::Node], Array[clause], Integer, Integer?) -> Herb::AST::ERBCaseNode
-    def control_case(code, body, clauses, depth, line)
+    def control_case(code, body, clauses, _depth, line)
       unless body.all? { |node| node.is_a?(Herb::AST::HTMLTextNode) && node.content.to_s.strip.empty? }
         warn(line, "content between `case` and the first `when` was dropped")
       end
@@ -135,12 +135,9 @@ module Herbst
       end
 
       else_clause = clauses.find { |clause| clause[1] == "else" }
-      node = erb_case(code, conditions, else_clause: else_clause && erb_else(else_clause[2]))
-      first = conditions.first&.statements&.first
 
-      node.children << text(newline(depth)) if first.is_a?(Herb::AST::HTMLTextNode) && first.content.to_s.start_with?("\n")
-
-      node
+      # Erubi compiles text between `case` and the first `when` into the `case`, which is a syntax error.
+      erb_case(code, conditions, else_clause: else_clause && erb_else(else_clause[2]))
     end
 
     #: (String, Array[Herb::AST::Node], Array[clause]) -> Herb::AST::ERBBeginNode

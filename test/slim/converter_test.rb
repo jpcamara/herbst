@@ -61,6 +61,17 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb(slim)
   end
 
+  it "puts nothing between case and the first when, since Erubi can't compile it" do
+    slim = "tr\n  - if a\n    th x\n  - case k\n  - when 1\n    td one\n  - when 2\n    td two"
+    assert_match "<% case k %><% when 1 %>\n", slim_to_erb(slim)
+  end
+
+  it "keeps strict locals, which Rails reads from the template source" do
+    assert_equal "<%# locals: (path:, network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:, network: nil)\np = path")
+    assert_equal "<p>x</p>", slim_to_erb("/ locals are documented elsewhere\np x")
+    assert_equal "<!--# locals: (path:)-->", slim_to_erb("/!# locals: (path:)")
+  end
+
   it "converts blocks and adds the do Slim adds" do
     assert_equal "<% items.each do |item| %><%= item %><% end %>", slim_to_erb("- items.each do |item|\n  = item")
     assert_equal "<% items.each do %><%= 1 %><% end %>", slim_to_erb("- items.each\n  = 1")
