@@ -5,6 +5,15 @@ module Herbst
     class Converter < Herbst::Converter
       HYPHEN_ATTRIBUTES: Array[String]
 
+      # Slim removes these attributes when their value is empty, as its `merge_attrs` option does.
+      REMOVE_EMPTY_ATTRIBUTES: Array[String]
+
+      # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
+      ATTRIBUTE_VALUE: String
+
+      # Methods that always return a String, so their value is never `nil` or `false`.
+      STRING_METHODS: Array[String]
+
       @options: Hash[Symbol, untyped]
 
       # : (?Hash[Symbol, untyped]) -> void
@@ -100,6 +109,25 @@ module Herbst
 
       # : (untyped) -> Array[Herb::AST::Node]
       def class_value: (untyped) -> Array[Herb::AST::Node]
+
+      # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
+      # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
+      #
+      # : (String) -> String
+      def class_code: (String) -> String
+
+      # : (String) -> Prism::node?
+      def ruby_node: (String) -> Prism::node?
+
+      # Whether the code's value is a String that Slim renders as is, so the attribute is never left out.
+      #
+      # : (String, String) -> bool
+      def present?: (String, String) -> bool
+
+      # Slim leaves out an attribute whose value is `nil` or `false`, and REMOVE_EMPTY_ATTRIBUTES when empty.
+      #
+      # : (String, String, bool) -> Array[Herb::AST::Node]
+      def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]
 
       # : (String, bool) -> Array[Herb::AST::Node]
       def attribute_value: (String, bool) -> Array[Herb::AST::Node]

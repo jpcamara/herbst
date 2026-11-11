@@ -68,21 +68,48 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   end
 
   it "expands data and aria hashes like Slim" do
-    assert_equal %(<p data-action="click" data-user_id="<%= user.id %>"></p>), slim_to_erb(%(p data={ action: "click", user_id: user.id }))
+    assert_equal %(<p data-action="click" data-user_id="<%= user.id.to_s %>"></p>), slim_to_erb(%(p data={ action: "click", user_id: user.id.to_s }))
     assert_equal %(<p aria-label="x" data-a-b="1"></p>), slim_to_erb(%(p aria={ label: "x" } data={ a: { b: 1 } }))
   end
 
+  it "falls back to tag.attributes for data and aria hashes that aren't literals" do
+    converter = Herbst::Slim::Converter.new
+    document = converter.convert("li data=option[:data] aria=labels")
+
+    assert_equal %(<li <%= tag.attributes(aria: labels) %> <%= tag.attributes(data: option[:data]) %>></li>), Herbst::Printer.print(document, format: false)
+    assert_equal 2, converter.warnings.size
+  end
+
   it "converts attributes like Slim" do
-    assert_equal %(<a href="<%= url %>" title="A &amp; B">x</a>), slim_to_erb(%(a href=url title="A & B" x))
+    assert_equal %(<a href="<%= url_path %>" title="A &amp; B">x</a>), slim_to_erb(%(a href=url_path title="A & B" x))
     assert_equal %(<input checked type="checkbox">), slim_to_erb(%(input type="checkbox" checked=true disabled=false))
     assert_equal %(<input <%= "disabled" if off %>>), slim_to_erb("input disabled=off")
     assert_equal %(<p data-id="1"></p>), slim_to_erb("p data-id=1")
+  end
+
+  it "leaves out attributes whose value is nil or false, like Slim" do
+    assert_equal %(<a <% if (attribute_value = url) %>href="<%= attribute_value %>"<% end %>>x</a>), slim_to_erb("a href=url x")
+    assert_equal %(<script <% if (attribute_value = nonce) %>nonce="<%== attribute_value %>"<% end %>></script>), slim_to_erb("script nonce==nonce")
+    assert_equal %(<p id="<%= dom_id(record) %>"></p>), slim_to_erb("p id=dom_id(record)")
+    assert_equal %(<option <%= "selected" if on %> <% if (attribute_value = id) %>value="<%= attribute_value %>"<% end %>></option>),
+                 slim_to_erb("option selected=on value=id")
   end
 
   it "merges classes" do
     assert_equal %(<p class="a <%= b %>"></p>), slim_to_erb("p.a class=b")
     assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))
     assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
+  end
+
+  it "leaves out a class that is nil or empty, like Slim" do
+    assert_equal %(<p <% if (attribute_value = cls) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=cls")
+  end
+
+  it "wraps class code that starts with [ but isn't an Array literal" do
+    code = %([a, b].compact.join(" ").presence)
+    expected = %([#{code}].flatten.map(&:to_s).reject(&:empty?).join(" "))
+
+    assert_equal %(<p <% if (attribute_value = #{expected}) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=#{code}")
   end
 
   it "falls back to tag.attributes for splats" do

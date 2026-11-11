@@ -95,6 +95,9 @@ module Herbst
     # : (Array[Herb::AST::Node]) -> Array[Herb::AST::Node]
     def open_tag_children: (Array[Herb::AST::Node]) -> Array[Herb::AST::Node]
 
+    # : (Herb::AST::Node) -> bool
+    def valued_attribute?: (Herb::AST::Node) -> bool
+
     # : [T < Herb::AST::Node] (T) -> T
     def merge_texts!: [T < Herb::AST::Node] (T) -> T
 

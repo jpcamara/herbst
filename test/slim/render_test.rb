@@ -17,6 +17,7 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     def user? = true
     def items = ["one", "<two>"]
     def risky = raise("boom & bust")
+    def missing = nil
   end
 
   it "renders page.slim like Slim" do
@@ -26,6 +27,20 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
 
     assert_equal without_block_whitespace(expected), without_block_whitespace(actual.force_encoding(Encoding::UTF_8))
+  end
+
+  it "leaves out nil, false and empty class attributes like Slim" do
+    source = <<~SLIM
+      a href=missing title=admin? data-role=role Link
+      p class=missing
+      p class=[missing, (extra if user?)].compact.join(" ")
+      p class=[missing].compact.join(" ")
+    SLIM
+
+    expected = Slim::Template.new(format: :html) { source }.render(Scope.new)
+    actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+
+    assert_equal expected, actual.force_encoding(Encoding::UTF_8).delete("\n").gsub(/\s+>/, ">")
   end
 
   private

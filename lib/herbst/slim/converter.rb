@@ -10,6 +10,15 @@ module Herbst
     class Converter < Herbst::Converter
       HYPHEN_ATTRIBUTES = ["data", "aria"].freeze #: Array[String]
 
+      # Slim removes these attributes when their value is empty, as its `merge_attrs` option does.
+      REMOVE_EMPTY_ATTRIBUTES = ["class"].freeze #: Array[String]
+
+      # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
+      ATTRIBUTE_VALUE = "attribute_value" #: String
+
+      # Methods that always return a String, so their value is never `nil` or `false`.
+      STRING_METHODS = ["to_s", "to_json", "to_param", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
+
       # @rbs @options: Hash[Symbol, untyped]
 
       #: (?Hash[Symbol, untyped]) -> void
@@ -325,6 +334,14 @@ module Herbst
 
       #: (Array[untyped]) -> Array[Herb::AST::Node]
       def convert_class(values)
+        _slim, kind, escape, code = values.fetch(0)
+
+        if values.size == 1 && kind == :attrvalue && !Temple::StaticAnalyzer.static?(code)
+          return [attribute("class", [erb(class_code(code), opening: escape ? "<%=" : "<%==")])] if present?(code, "class")
+
+          return optional_attribute("class", class_code(code), escape)
+        end
+
         parts = values.filter_map do |value|
           nodes = class_value(value)
           nodes unless nodes.empty?
@@ -346,11 +363,62 @@ module Herbst
           _slim, _attrvalue, escape, code = value
           return [literal(static_class(code))] if Temple::StaticAnalyzer.static?(code)
 
-          code = "#{code}.flatten.map(&:to_s).reject(&:empty?).join(\" \")" if code.strip.start_with?("[")
-          [erb(code, opening: escape ? "<%=" : "<%==")]
+          [erb(class_code(code), opening: escape ? "<%=" : "<%==")]
         else
           []
         end
+      end
+
+      # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
+      # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
+      #
+      #: (String) -> String
+      def class_code(code)
+        return code unless code.strip.start_with?("[")
+
+        code = "[#{code}]" unless ruby_node(code).is_a?(Prism::ArrayNode)
+
+        "#{code}.flatten.map(&:to_s).reject(&:empty?).join(\" \")"
+      end
+
+      #: (String) -> Prism::node?
+      def ruby_node(code)
+        Prism.parse(code).value.statements.body.first
+      end
+
+      # Whether the code's value is a String that Slim renders as is, so the attribute is never left out.
+      #
+      #: (String, String) -> bool
+      def present?(code, name)
+        node = ruby_node(code)
+
+        case node
+        when Prism::StringNode
+          !node.unescaped.empty?
+        when Prism::InterpolatedStringNode
+          node.parts.any? { |part| part.is_a?(Prism::StringNode) && !part.unescaped.empty? }
+        when Prism::IntegerNode, Prism::FloatNode
+          true
+        when Prism::ArrayNode
+          node.elements.any? { |element| element.is_a?(Prism::StringNode) && !element.unescaped.strip.empty? }
+        when Prism::CallNode
+          return false if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+
+          method = node.name.to_s
+          STRING_METHODS.include?(method) || method.end_with?("_path", "_url")
+        else
+          false
+        end
+      end
+
+      # Slim leaves out an attribute whose value is `nil` or `false`, and REMOVE_EMPTY_ATTRIBUTES when empty.
+      #
+      #: (String, String, bool) -> Array[Herb::AST::Node]
+      def optional_attribute(name, code, escape)
+        condition = "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
+        condition += " && #{ATTRIBUTE_VALUE} != \"\"" if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+
+        [erb_if(condition, [attribute(name, [erb(ATTRIBUTE_VALUE, opening: escape ? "<%=" : "<%==")])])]
       end
 
       #: (String, bool) -> Array[Herb::AST::Node]
@@ -378,7 +446,7 @@ module Herbst
         when :escape
           [attribute(name, attribute_value(value[2][2], value[1]))]
         when :slim
-          if HYPHEN_ATTRIBUTES.include?(name) && value[3].strip.start_with?("{")
+          if HYPHEN_ATTRIBUTES.include?(name) && (value[3].strip.start_with?("{") || !Temple::StaticAnalyzer.static?(value[3]))
             convert_hash_attribute(name, value[2], value[3])
           else
             convert_code_attribute(name, value[2], value[3])
@@ -442,8 +510,10 @@ module Herbst
 
           if Herb::HTML::Util.boolean_attribute?(name)
             [erb("#{name.inspect} if #{code}")]
-          else
+          elsif present?(code, name)
             [attribute(name, [erb(code, opening: escape ? "<%=" : "<%==")])]
+          else
+            optional_attribute(name, code, escape)
           end
         end
       end
