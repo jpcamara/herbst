@@ -14,6 +14,9 @@ module Herbst
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS: Array[String]
 
+      # Operators that return `true` or `false`.
+      BOOLEAN_OPERATORS: Array[String]
+
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
       # that the parser drops.
       STRICT_LOCALS: Regexp
@@ -138,6 +141,11 @@ module Herbst
       #
       # : (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]
+
+      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can.
+      #
+      # : (String) -> bool
+      def may_be_true?: (String) -> bool
 
       # : (String, bool) -> Array[Herb::AST::Node]
       def attribute_value: (String, bool) -> Array[Herb::AST::Node]

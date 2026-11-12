@@ -106,6 +106,19 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
                  slim_to_erb("option selected=on value=id")
   end
 
+  it "keeps route helpers as plain attributes, but not methods on a receiver with the same suffix" do
+    assert_equal %(<a href="<%= root_path %>">x</a>), slim_to_erb("a href=root_path x")
+    assert_equal %(<a <% if (attribute_value = file.cloud_url) %>href="<%= attribute_value %>"<% end %>>x</a>), slim_to_erb("a href=file.cloud_url x")
+    assert_equal %(<p title="<%= user.name.to_s %>"></p>), slim_to_erb("p title=user.name.to_s")
+  end
+
+  it "renders true as an empty attribute value, like Slim" do
+    assert_equal %(<p <% if (attribute_value = (true if locked)) %>data-tip="<%= attribute_value unless attribute_value == true %>"<% end %>></p>),
+                 slim_to_erb("p data-tip=(true if locked)")
+    assert_equal %(<p <% if (attribute_value = user.admin?) %>title="<%= attribute_value unless attribute_value == true %>"<% end %>></p>),
+                 slim_to_erb("p title=user.admin?")
+  end
+
   it "merges classes" do
     assert_equal %(<p class="a <%= b %>"></p>), slim_to_erb("p.a class=b")
     assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))

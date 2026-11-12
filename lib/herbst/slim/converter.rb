@@ -19,6 +19,9 @@ module Herbst
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS = ["to_s", "to_json", "to_param", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
 
+      # Operators that return `true` or `false`.
+      BOOLEAN_OPERATORS = ["==", "!=", "!", "<", ">", "<=", ">=", "==="].freeze #: Array[String]
+
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
       # that the parser drops.
       STRICT_LOCALS = %r{^[ \t]*/(?!!)[ \t]*#[ \t]+(locals:[ \t]+\(.*\))[ \t]*$} #: Regexp
@@ -429,7 +432,10 @@ module Herbst
           return false if REMOVE_EMPTY_ATTRIBUTES.include?(name)
 
           method = node.name.to_s
-          STRING_METHODS.include?(method) || method.end_with?("_path", "_url")
+          return true if STRING_METHODS.include?(method)
+
+          # Route helpers are called without a receiver. A model method such as `file.cloud_url` can return `nil`.
+          node.receiver.nil? && method.end_with?("_path", "_url")
         else
           false
         end
@@ -441,8 +447,27 @@ module Herbst
       def optional_attribute(name, code, escape)
         condition = "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
         condition += " && #{ATTRIBUTE_VALUE} != \"\"" if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+        value = ATTRIBUTE_VALUE
+        # Slim renders `true` as an attribute without a value, which is the same as an empty one.
+        value += " unless #{ATTRIBUTE_VALUE} == true" if !REMOVE_EMPTY_ATTRIBUTES.include?(name) && may_be_true?(code)
 
-        [erb_if(condition, [attribute(name, [erb(ATTRIBUTE_VALUE, opening: escape ? "<%=" : "<%==")])])]
+        [erb_if(condition, [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])])]
+      end
+
+      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can.
+      #
+      #: (String) -> bool
+      def may_be_true?(code)
+        nodes = [Prism.parse(code).value] #: Array[Prism::node]
+
+        while (node = nodes.shift)
+          return true if node.is_a?(Prism::TrueNode)
+          return true if node.is_a?(Prism::CallNode) && (node.name.end_with?("?") || BOOLEAN_OPERATORS.include?(node.name.to_s))
+
+          nodes.concat(node.compact_child_nodes)
+        end
+
+        false
       end
 
       #: (String, bool) -> Array[Herb::AST::Node]

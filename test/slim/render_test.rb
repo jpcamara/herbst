@@ -18,6 +18,7 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     def items = ["one", "<two>"]
     def risky = raise("boom & bust")
     def missing = nil
+    def presenter = Struct.new(:sharing_path).new(nil)
   end
 
   it "renders page.slim like Slim" do
@@ -47,6 +48,19 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
 
     assert_equal expected, actual.force_encoding(Encoding::UTF_8).delete("\n").gsub(/\s+>/, ">")
+  end
+
+  it "leaves out nil from a method with a route helper name, and renders true without a value, like Slim" do
+    source = <<~SLIM
+      button data-url=presenter.sharing_path Share
+      p data-tip=(true if user?) data-off=(true if admin?)
+    SLIM
+
+    expected = Slim::Template.new(format: :html) { source }.render(Scope.new)
+    actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+
+    assert_equal %(<button>Share</button><p data-tip></p>), expected
+    assert_equal %(<button>Share</button><p data-tip=""></p>), actual.force_encoding(Encoding::UTF_8).delete("\n").squeeze(" ").gsub(/\s+>/, ">")
   end
 
   private
