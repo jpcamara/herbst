@@ -142,10 +142,14 @@ module Herbst
       # : (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]
 
-      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can.
+      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can. Only the parts
+      # that give the value count, so the condition in `(admin? ? 4 : 3)` does not.
       #
       # : (String) -> bool
       def may_be_true?: (String) -> bool
+
+      # : (Prism::node?) -> bool
+      def returns_true?: (Prism::node?) -> bool
 
       # : (String, bool) -> Array[Herb::AST::Node]
       def attribute_value: (String, bool) -> Array[Herb::AST::Node]

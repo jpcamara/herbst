@@ -454,20 +454,36 @@ module Herbst
         [erb_if(condition, [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])])]
       end
 
-      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can.
+      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can. Only the parts
+      # that give the value count, so the condition in `(admin? ? 4 : 3)` does not.
       #
       #: (String) -> bool
       def may_be_true?(code)
-        nodes = [Prism.parse(code).value] #: Array[Prism::node]
+        returns_true?(Prism.parse(code).value)
+      end
 
-        while (node = nodes.shift)
-          return true if node.is_a?(Prism::TrueNode)
-          return true if node.is_a?(Prism::CallNode) && (node.name.end_with?("?") || BOOLEAN_OPERATORS.include?(node.name.to_s))
-
-          nodes.concat(node.compact_child_nodes)
+      #: (Prism::node?) -> bool
+      def returns_true?(node)
+        case node
+        when Prism::TrueNode
+          true
+        when Prism::ProgramNode, Prism::ElseNode
+          returns_true?(node.statements)
+        when Prism::StatementsNode
+          returns_true?(node.body.last)
+        when Prism::ParenthesesNode
+          returns_true?(node.body)
+        when Prism::IfNode
+          returns_true?(node.statements) || returns_true?(node.subsequent)
+        when Prism::UnlessNode
+          returns_true?(node.statements) || returns_true?(node.else_clause)
+        when Prism::AndNode, Prism::OrNode
+          returns_true?(node.left) || returns_true?(node.right)
+        when Prism::CallNode
+          node.name.end_with?("?") || BOOLEAN_OPERATORS.include?(node.name.to_s)
+        else
+          false
         end
-
-        false
       end
 
       #: (String, bool) -> Array[Herb::AST::Node]

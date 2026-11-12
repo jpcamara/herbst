@@ -117,6 +117,7 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
                  slim_to_erb("p data-tip=(true if locked)")
     assert_equal %(<p <% if (attribute_value = user.admin?) %>title="<%= attribute_value unless attribute_value == true %>"<% end %>></p>),
                  slim_to_erb("p title=user.admin?")
+    assert_equal %(<td <% if (attribute_value = (wide? ? 4 : 3)) %>colspan="<%= attribute_value %>"<% end %>></td>), slim_to_erb("td colspan=(wide? ? 4 : 3)")
   end
 
   it "merges classes" do
