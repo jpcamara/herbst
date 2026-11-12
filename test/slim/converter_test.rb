@@ -126,13 +126,13 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
   end
 
-  it "leaves out a class that is nil or empty, like Slim" do
-    assert_equal %(<p <% if (attribute_value = cls) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=cls")
+  it "leaves out a class that is nil or empty, and keeps false, like Slim" do
+    assert_equal %(<p <% if (attribute_value = (cls).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=cls")
   end
 
   it "leaves out a class that is only interpolation when it's empty, like Slim" do
-    assert_equal %(<p <% if (attribute_value = (cls).to_s) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
-    assert_equal %(<p <% if (attribute_value = "\#{a}\#{b}") && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
+    assert_equal %(<p <% if (attribute_value = (cls).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
+    assert_equal %(<p <% if (attribute_value = ("\#{a}\#{b}").to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
     assert_equal %(<p class="<%= a %> b"></p>), slim_to_erb(%(p class="\#{a} b"))
   end
 
@@ -140,7 +140,7 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     code = %([a, b].compact.join(" ").presence)
     expected = %([#{code}].flatten.map(&:to_s).reject(&:empty?).join(" "))
 
-    assert_equal %(<p <% if (attribute_value = #{expected}) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=#{code}")
+    assert_equal %(<p <% if (attribute_value = (#{expected}).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=#{code}")
   end
 
   it "falls back to tag.attributes for splats" do

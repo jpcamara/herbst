@@ -137,7 +137,8 @@ module Herbst
       # : (String, String) -> bool
       def present?: (String, String) -> bool
 
-      # Slim leaves out an attribute whose value is `nil` or `false`, and REMOVE_EMPTY_ATTRIBUTES when empty.
+      # Slim leaves out an attribute whose value is `nil` or `false`. It renders REMOVE_EMPTY_ATTRIBUTES as a
+      # String, so `false` stays as "false", and leaves them out only when empty.
       #
       # : (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]

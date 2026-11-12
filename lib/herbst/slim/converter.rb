@@ -394,7 +394,7 @@ module Herbst
         return nil if parts.empty? || parts.any? { |part| part[0] == :static ? !part[1].empty? : !part[2] }
 
         codes = parts.reject { |part| part[0] == :static }.map { |part| part[3].strip }
-        return "(#{codes.first}).to_s" if codes.size == 1
+        return codes.first if codes.size == 1
 
         "\"#{codes.map { |code| "\#{#{code}}" }.join}\""
       end
@@ -441,12 +441,17 @@ module Herbst
         end
       end
 
-      # Slim leaves out an attribute whose value is `nil` or `false`, and REMOVE_EMPTY_ATTRIBUTES when empty.
+      # Slim leaves out an attribute whose value is `nil` or `false`. It renders REMOVE_EMPTY_ATTRIBUTES as a
+      # String, so `false` stays as "false", and leaves them out only when empty.
       #
       #: (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute(name, code, escape)
-        condition = "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
-        condition += " && #{ATTRIBUTE_VALUE} != \"\"" if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+        condition =
+          if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+            "if (#{ATTRIBUTE_VALUE} = (#{code.strip}).to_s) != \"\""
+          else
+            "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
+          end
         value = ATTRIBUTE_VALUE
         # Slim renders `true` as an attribute without a value, which is the same as an empty one.
         value += " unless #{ATTRIBUTE_VALUE} == true" if !REMOVE_EMPTY_ATTRIBUTES.include?(name) && may_be_true?(code)

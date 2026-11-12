@@ -34,6 +34,7 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     source = <<~'SLIM'
       a href=missing title=admin? data-role=role Link
       p class=missing
+      p class=admin?
       p class=[missing, (extra if user?)].compact.join(" ")
       p class=[missing].compact.join(" ")
       p class="#{missing}"
