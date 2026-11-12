@@ -117,6 +117,12 @@ module Herbst
       # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
       # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
       #
+      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
+      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      #
+      # : (String) -> String?
+      def interpolation_code: (String) -> String?
+
       # : (String) -> String
       def class_code: (String) -> String
 

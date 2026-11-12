@@ -30,11 +30,17 @@ class Herbst::Slim::RenderTest < Minitest::Spec
   end
 
   it "leaves out nil, false and empty class attributes like Slim" do
-    source = <<~SLIM
+    source = <<~'SLIM'
       a href=missing title=admin? data-role=role Link
       p class=missing
       p class=[missing, (extra if user?)].compact.join(" ")
       p class=[missing].compact.join(" ")
+      p class="#{missing}"
+      p class="#{"active" if admin?}"
+      p class="#{"active" if user?}"
+      p class="#{missing}#{role}"
+      p class="#{admin?}"
+      p class="#{missing} "
     SLIM
 
     expected = Slim::Template.new(format: :html) { source }.render(Scope.new)

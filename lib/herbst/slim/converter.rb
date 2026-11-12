@@ -348,6 +348,10 @@ module Herbst
           return optional_attribute("class", class_code(code), escape)
         end
 
+        if values.size == 1 && values.fetch(0)[0] == :escape && (code = interpolation_code(values.fetch(0)[2][2]))
+          return optional_attribute("class", code, values.fetch(0)[1])
+        end
+
         parts = values.filter_map do |value|
           nodes = class_value(value)
           nodes unless nodes.empty?
@@ -378,6 +382,20 @@ module Herbst
       # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
       # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
       #
+      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
+      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      #
+      #: (String) -> String?
+      def interpolation_code(string)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
+        return nil if parts.empty? || parts.any? { |part| part[0] == :static ? !part[1].empty? : !part[2] }
+
+        codes = parts.reject { |part| part[0] == :static }.map { |part| part[3].strip }
+        return "(#{codes.first}).to_s" if codes.size == 1
+
+        "\"#{codes.map { |code| "\#{#{code}}" }.join}\""
+      end
+
       #: (String) -> String
       def class_code(code)
         return code unless code.strip.start_with?("[")

@@ -116,6 +116,12 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p <% if (attribute_value = cls) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=cls")
   end
 
+  it "leaves out a class that is only interpolation when it's empty, like Slim" do
+    assert_equal %(<p <% if (attribute_value = (cls).to_s) && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
+    assert_equal %(<p <% if (attribute_value = "\#{a}\#{b}") && attribute_value != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
+    assert_equal %(<p class="<%= a %> b"></p>), slim_to_erb(%(p class="\#{a} b"))
+  end
+
   it "wraps class code that starts with [ but isn't an Array literal" do
     code = %([a, b].compact.join(" ").presence)
     expected = %([#{code}].flatten.map(&:to_s).reject(&:empty?).join(" "))
