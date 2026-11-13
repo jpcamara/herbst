@@ -77,6 +77,12 @@ module Herbst
       # : (String, untyped, Array[untyped], Integer) -> Array[Herb::AST::Node]
       def convert_control: (String, untyped, Array[untyped], Integer) -> Array[Herb::AST::Node]
 
+      # Slim accepts the first clause on the `- case` line, as in `- case value when 1`. The lines indented
+      # under it are that clause's body, so they move into a clause of their own.
+      #
+      # : (String, untyped, Array[untyped]) -> [String, untyped, Array[untyped]]
+      def inline_clause: (String, untyped, Array[untyped]) -> [ String, untyped, Array[untyped] ]
+
       # Slim also accepts the `- when` lines of a `- case` indented under it.
       #
       # : (untyped) -> [untyped, Array[untyped]]

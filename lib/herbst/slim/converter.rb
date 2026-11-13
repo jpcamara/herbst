@@ -236,6 +236,7 @@ module Herbst
         return comment_nodes(comment) if code.empty?
 
         content, clause_items = nested_clauses(content) if keyword(code) == "case" && clause_items.empty?
+        code, content, clause_items = inline_clause(code, content, clause_items) if keyword(code) == "case"
 
         children = body(content, depth)
         return [*comment_nodes(comment), erb(code, opening: "<%")] if children.empty? && clause_items.empty? && !code.match?(::Slim::EndInserter::IF_RE)
@@ -246,6 +247,21 @@ module Herbst
         end
 
         [*comment_nodes(comment), control(block_code(code), keyword(code), children, clauses, depth)]
+      end
+
+      # Slim accepts the first clause on the `- case` line, as in `- case value when 1`. The lines indented
+      # under it are that clause's body, so they move into a clause of their own.
+      #
+      #: (String, untyped, Array[untyped]) -> [String, untyped, Array[untyped]]
+      def inline_clause(code, content, clause_items)
+        node = ruby_node("#{code}\nend")
+        return [code, content, clause_items] unless node.is_a?(Prism::CaseNode) || node.is_a?(Prism::CaseMatchNode)
+
+        first = node.conditions.first
+        return [code, content, clause_items] unless first
+
+        offset = first.location.start_offset
+        [code.byteslice(0, offset).to_s.rstrip, [:multi], [[:slim, :control, code.byteslice(offset..).to_s, content], *clause_items]]
       end
 
       # Slim also accepts the `- when` lines of a `- case` indented under it.
@@ -372,7 +388,10 @@ module Herbst
           attribute_value(value[2][2], value[1])
         when :slim
           _slim, _attrvalue, escape, code = value
-          return [literal(static_class(code))] if Temple::StaticAnalyzer.static?(code)
+          if Temple::StaticAnalyzer.static?(code)
+            value = static_class(code)
+            return value.empty? ? [] : [literal(value)]
+          end
 
           [erb(class_code(code), opening: escape ? "<%=" : "<%==")]
         else

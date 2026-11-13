@@ -56,6 +56,10 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<p>Hello <code>x</code></p>", slim_to_erb("p Hello <code>x</code>")
   end
 
+  it "converts a when on the case line, with the lines under it as its body" do
+    assert_equal "<% case x %><% when 1 %>one<% when 2 %>two<% end %>", slim_to_erb("- case x when 1\n  | one\n- when 2\n  | two")
+  end
+
   it "converts case / when" do
     slim = "- case x\n- when 1\n  | one\n- else\n  | other"
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb(slim)
@@ -126,6 +130,8 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p class="a <%= [b].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb("p.a class=b")
     assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))
     assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
+    assert_equal %(<p class="a b"></p>), slim_to_erb(%(p.a class=nil class="b"))
+    assert_equal %(<p></p>), slim_to_erb("p class=nil")
   end
 
   it "leaves out a class that is nil or empty, and keeps false, like Slim" do
