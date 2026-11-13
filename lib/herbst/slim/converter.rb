@@ -14,13 +14,11 @@ module Herbst
       REMOVE_EMPTY_ATTRIBUTES = ["class"].freeze #: Array[String]
 
       # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
-      ATTRIBUTE_VALUE = "attribute_value" #: String
+      # It's prefixed so it doesn't hide a template's own local or helper.
+      ATTRIBUTE_VALUE = "_herbst_attribute" #: String
 
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS = ["to_s", "to_json", "to_param", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
-
-      # Operators that return `true` or `false`.
-      BOOLEAN_OPERATORS = ["==", "!=", "!", "<", ">", "<=", ">=", "==="].freeze #: Array[String]
 
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
       # that the parser drops.
@@ -382,9 +380,6 @@ module Herbst
         end
       end
 
-      # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
-      # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
-      #
       # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
       # leaves out a class like this when it renders empty, and keeps one that has static text.
       #
@@ -394,16 +389,17 @@ module Herbst
         return nil if parts.empty? || parts.any? { |part| part[0] == :static ? !part[1].empty? : !part[2] }
 
         codes = parts.reject { |part| part[0] == :static }.map { |part| part[3].strip }
-        return codes.first if codes.size == 1
+        return "(#{codes.first}).to_s" if codes.size == 1
 
         "\"#{codes.map { |code| "\#{#{code}}" }.join}\""
       end
 
+      # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
+      # Array literal can return an Array or not, so it's wrapped in one.
+      #
       #: (String) -> String
       def class_code(code)
-        return code unless code.strip.start_with?("[")
-
-        code = "[#{code}]" unless ruby_node(code).is_a?(Prism::ArrayNode)
+        code = "[#{code.strip}]" unless ruby_node(code).is_a?(Prism::ArrayNode)
 
         "#{code}.flatten.map(&:to_s).reject(&:empty?).join(\" \")"
       end
@@ -441,54 +437,22 @@ module Herbst
         end
       end
 
-      # Slim leaves out an attribute whose value is `nil` or `false`. It renders REMOVE_EMPTY_ATTRIBUTES as a
-      # String, so `false` stays as "false", and leaves them out only when empty.
+      # Slim leaves out an attribute whose value is `nil` or `false`. It leaves out REMOVE_EMPTY_ATTRIBUTES
+      # only when empty, so their code must return a String, where `false` stays as "false".
       #
       #: (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute(name, code, escape)
         condition =
           if REMOVE_EMPTY_ATTRIBUTES.include?(name)
-            "if (#{ATTRIBUTE_VALUE} = (#{code.strip}).to_s) != \"\""
+            "if (#{ATTRIBUTE_VALUE} = #{code.strip}) != \"\""
           else
             "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
           end
         value = ATTRIBUTE_VALUE
         # Slim renders `true` as an attribute without a value, which is the same as an empty one.
-        value += " unless #{ATTRIBUTE_VALUE} == true" if !REMOVE_EMPTY_ATTRIBUTES.include?(name) && may_be_true?(code)
+        value += " unless #{ATTRIBUTE_VALUE} == true" unless REMOVE_EMPTY_ATTRIBUTES.include?(name)
 
         [erb_if(condition, [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])])]
-      end
-
-      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can. Only the parts
-      # that give the value count, so the condition in `(admin? ? 4 : 3)` does not.
-      #
-      #: (String) -> bool
-      def may_be_true?(code)
-        returns_true?(Prism.parse(code).value)
-      end
-
-      #: (Prism::node?) -> bool
-      def returns_true?(node)
-        case node
-        when Prism::TrueNode
-          true
-        when Prism::ProgramNode, Prism::ElseNode
-          returns_true?(node.statements)
-        when Prism::StatementsNode
-          returns_true?(node.body.last)
-        when Prism::ParenthesesNode
-          returns_true?(node.body)
-        when Prism::IfNode
-          returns_true?(node.statements) || returns_true?(node.subsequent)
-        when Prism::UnlessNode
-          returns_true?(node.statements) || returns_true?(node.else_clause)
-        when Prism::AndNode, Prism::OrNode
-          returns_true?(node.left) || returns_true?(node.right)
-        when Prism::CallNode
-          node.name.end_with?("?") || BOOLEAN_OPERATORS.include?(node.name.to_s)
-        else
-          false
-        end
       end
 
       #: (String, bool) -> Array[Herb::AST::Node]
@@ -539,9 +503,27 @@ module Herbst
           if value.strip.start_with?("{")
             convert_hash_attribute("#{name}-#{key}", escape, value)
           else
-            convert_code_attribute("#{name}-#{key}", escape, value)
+            convert_hash_value("#{name}-#{key}", escape, value)
           end
         end
+      end
+
+      # Slim renders a value in a data or aria hash as a String, so `nil` is empty and `false` is
+      # "false". It renders `true` as an attribute without a value, which is the same as an empty one.
+      #
+      #: (String, bool, String) -> Array[Herb::AST::Node]
+      def convert_hash_value(name, escape, code)
+        if Temple::StaticAnalyzer.static?(code)
+          value = eval(code) # rubocop:disable Security/Eval
+          return [attribute(name)] if value == true
+
+          return [attribute(name, [literal(escape ? CGI.escapeHTML(value.to_s) : value.to_s)])]
+        end
+
+        return [attribute(name, [erb(code, opening: escape ? "<%=" : "<%==")])] if present?(code, name)
+
+        value = "(#{ATTRIBUTE_VALUE} = #{code.strip}) == true ? nil : #{ATTRIBUTE_VALUE}"
+        [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])]
       end
 
       #: (String) -> Array[[String, String]]?

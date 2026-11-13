@@ -79,7 +79,9 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   end
 
   it "expands data and aria hashes like Slim" do
-    assert_equal %(<p data-action="click" data-user_id="<%= user.id.to_s %>"></p>), slim_to_erb(%(p data={ action: "click", user_id: user.id.to_s }))
+    assert_equal %(<p data-action="click" data-user_id="<%= (_herbst_attribute = user.id) == true ? nil : _herbst_attribute %>"></p>),
+                 slim_to_erb(%(p data={ action: "click", user_id: user.id }))
+    assert_equal %(<p data-a="" data-b="false" data-c></p>), slim_to_erb(%(p data={ a: nil, b: false, c: true }))
     assert_equal %(<p aria-label="x" data-a-b="1"></p>), slim_to_erb(%(p aria={ label: "x" } data={ a: { b: 1 } }))
   end
 
@@ -99,48 +101,49 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   end
 
   it "leaves out attributes whose value is nil or false, like Slim" do
-    assert_equal %(<a <% if (attribute_value = url) %>href="<%= attribute_value %>"<% end %>>x</a>), slim_to_erb("a href=url x")
-    assert_equal %(<script <% if (attribute_value = nonce) %>nonce="<%== attribute_value %>"<% end %>></script>), slim_to_erb("script nonce==nonce")
+    assert_equal %(<a <% if (_herbst_attribute = url) %>href="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>>x</a>), slim_to_erb("a href=url x")
+    assert_equal %(<script <% if (_herbst_attribute = nonce) %>nonce="<%== _herbst_attribute unless _herbst_attribute == true %>"<% end %>></script>), slim_to_erb("script nonce==nonce")
     assert_equal %(<p id="<%= dom_id(record) %>"></p>), slim_to_erb("p id=dom_id(record)")
-    assert_equal %(<option <%= "selected" if on %> <% if (attribute_value = id) %>value="<%= attribute_value %>"<% end %>></option>),
+    assert_equal %(<option <%= "selected" if on %> <% if (_herbst_attribute = id) %>value="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></option>),
                  slim_to_erb("option selected=on value=id")
   end
 
   it "keeps route helpers as plain attributes, but not methods on a receiver with the same suffix" do
     assert_equal %(<a href="<%= root_path %>">x</a>), slim_to_erb("a href=root_path x")
-    assert_equal %(<a <% if (attribute_value = file.cloud_url) %>href="<%= attribute_value %>"<% end %>>x</a>), slim_to_erb("a href=file.cloud_url x")
+    assert_equal %(<a <% if (_herbst_attribute = file.cloud_url) %>href="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>>x</a>), slim_to_erb("a href=file.cloud_url x")
     assert_equal %(<p title="<%= user.name.to_s %>"></p>), slim_to_erb("p title=user.name.to_s")
   end
 
   it "renders true as an empty attribute value, like Slim" do
-    assert_equal %(<p <% if (attribute_value = (true if locked)) %>data-tip="<%= attribute_value unless attribute_value == true %>"<% end %>></p>),
+    assert_equal %(<p <% if (_herbst_attribute = (true if locked)) %>data-tip="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></p>),
                  slim_to_erb("p data-tip=(true if locked)")
-    assert_equal %(<p <% if (attribute_value = user.admin?) %>title="<%= attribute_value unless attribute_value == true %>"<% end %>></p>),
+    assert_equal %(<p <% if (_herbst_attribute = user.admin?) %>title="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></p>),
                  slim_to_erb("p title=user.admin?")
-    assert_equal %(<td <% if (attribute_value = (wide? ? 4 : 3)) %>colspan="<%= attribute_value %>"<% end %>></td>), slim_to_erb("td colspan=(wide? ? 4 : 3)")
+    assert_equal %(<td <% if (_herbst_attribute = (wide? ? 4 : 3)) %>colspan="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></td>), slim_to_erb("td colspan=(wide? ? 4 : 3)")
   end
 
   it "merges classes" do
-    assert_equal %(<p class="a <%= b %>"></p>), slim_to_erb("p.a class=b")
+    assert_equal %(<p class="a <%= [b].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb("p.a class=b")
     assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))
     assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
   end
 
   it "leaves out a class that is nil or empty, and keeps false, like Slim" do
-    assert_equal %(<p <% if (attribute_value = (cls).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=cls")
+    assert_equal %(<p <% if (_herbst_attribute = [cls].flatten.map(&:to_s).reject(&:empty?).join(" ")) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>),
+                 slim_to_erb("p class=cls")
   end
 
   it "leaves out a class that is only interpolation when it's empty, like Slim" do
-    assert_equal %(<p <% if (attribute_value = (cls).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
-    assert_equal %(<p <% if (attribute_value = ("\#{a}\#{b}").to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
+    assert_equal %(<p <% if (_herbst_attribute = (cls).to_s) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
+    assert_equal %(<p <% if (_herbst_attribute = "\#{a}\#{b}") != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
     assert_equal %(<p class="<%= a %> b"></p>), slim_to_erb(%(p class="\#{a} b"))
   end
 
-  it "wraps class code that starts with [ but isn't an Array literal" do
+  it "wraps class code that isn't an Array literal, since it can return an Array" do
     code = %([a, b].compact.join(" ").presence)
     expected = %([#{code}].flatten.map(&:to_s).reject(&:empty?).join(" "))
 
-    assert_equal %(<p <% if (attribute_value = (#{expected}).to_s) != "" %>class="<%= attribute_value %>"<% end %>></p>), slim_to_erb("p class=#{code}")
+    assert_equal %(<p <% if (_herbst_attribute = #{expected}) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb("p class=#{code}")
   end
 
   it "falls back to tag.attributes for splats" do

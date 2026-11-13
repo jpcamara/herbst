@@ -9,13 +9,11 @@ module Herbst
       REMOVE_EMPTY_ATTRIBUTES: Array[String]
 
       # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
+      # It's prefixed so it doesn't hide a template's own local or helper.
       ATTRIBUTE_VALUE: String
 
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS: Array[String]
-
-      # Operators that return `true` or `false`.
-      BOOLEAN_OPERATORS: Array[String]
 
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
       # that the parser drops.
@@ -117,15 +115,15 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def class_value: (untyped) -> Array[Herb::AST::Node]
 
-      # Slim joins an Array class with spaces. Code that starts with `[` but isn't an Array literal,
-      # like `[a, b].compact.join(" ").presence`, can return a String or `nil`, so it's wrapped in one.
-      #
       # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
       # leaves out a class like this when it renders empty, and keeps one that has static text.
       #
       # : (String) -> String?
       def interpolation_code: (String) -> String?
 
+      # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
+      # Array literal can return an Array or not, so it's wrapped in one.
+      #
       # : (String) -> String
       def class_code: (String) -> String
 
@@ -137,20 +135,11 @@ module Herbst
       # : (String, String) -> bool
       def present?: (String, String) -> bool
 
-      # Slim leaves out an attribute whose value is `nil` or `false`. It renders REMOVE_EMPTY_ATTRIBUTES as a
-      # String, so `false` stays as "false", and leaves them out only when empty.
+      # Slim leaves out an attribute whose value is `nil` or `false`. It leaves out REMOVE_EMPTY_ATTRIBUTES
+      # only when empty, so their code must return a String, where `false` stays as "false".
       #
       # : (String, String, bool) -> Array[Herb::AST::Node]
       def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]
-
-      # Whether the code can return `true`, as `(true if locked)` or `user.admin?` can. Only the parts
-      # that give the value count, so the condition in `(admin? ? 4 : 3)` does not.
-      #
-      # : (String) -> bool
-      def may_be_true?: (String) -> bool
-
-      # : (Prism::node?) -> bool
-      def returns_true?: (Prism::node?) -> bool
 
       # : (String, bool) -> Array[Herb::AST::Node]
       def attribute_value: (String, bool) -> Array[Herb::AST::Node]
@@ -163,6 +152,12 @@ module Herbst
 
       # : (String, bool, String) -> Array[Herb::AST::Node]
       def convert_hash_attribute: (String, bool, String) -> Array[Herb::AST::Node]
+
+      # Slim renders a value in a data or aria hash as a String, so `nil` is empty and `false` is
+      # "false". It renders `true` as an attribute without a value, which is the same as an empty one.
+      #
+      # : (String, bool, String) -> Array[Herb::AST::Node]
+      def convert_hash_value: (String, bool, String) -> Array[Herb::AST::Node]
 
       # : (String) -> Array[[String, String]]?
       def hash_entries: (String) -> Array[[ String, String ]]?

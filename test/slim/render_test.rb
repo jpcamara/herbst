@@ -19,6 +19,8 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     def risky = raise("boom & bust")
     def missing = nil
     def presenter = Struct.new(:sharing_path).new(nil)
+    def classes = ["a", nil, ["b", ""]]
+    def attribute_value = "helper"
   end
 
   it "renders page.slim like Slim" do
@@ -62,6 +64,21 @@ class Herbst::Slim::RenderTest < Minitest::Spec
 
     assert_equal %(<button>Share</button><p data-tip></p>), expected
     assert_equal %(<button>Share</button><p data-tip=""></p>), actual.force_encoding(Encoding::UTF_8).delete("\n").squeeze(" ").gsub(/\s+>/, ">")
+  end
+
+  it "renders data hash values, Array classes and true from any code like Slim" do
+    source = <<~SLIM
+      p data={ a: missing, b: admin?, c: user?, d: role }
+      p class=classes
+      p.x class=classes
+      p title=user? = attribute_value
+    SLIM
+
+    expected = Slim::Template.new(format: :html) { source }.render(Scope.new)
+    actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+
+    assert_equal %(<p data-a="" data-b="false" data-c data-d="a"></p><p class="a b"></p><p class="x a b"></p><p title>helper</p>), expected
+    assert_equal expected.gsub(/(data-c|title)(?==|>| )/, '\\1=""'), actual.force_encoding(Encoding::UTF_8).delete("\n").squeeze(" ").gsub(/\s+>/, ">")
   end
 
   private
