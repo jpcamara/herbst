@@ -152,6 +152,25 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p <% if (_herbst_attribute = #{expected}) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb("p class=#{code}")
   end
 
+  it "ignores a byte order mark, like Slim" do
+    assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
+  end
+
+  it "expands a splat that is a Hash literal, merging its class like Slim" do
+    assert_equal %(<div class="cute nice">Hello</div>), slim_to_erb(%(.cute *{class: "nice"} Hello))
+    assert_equal %(<a class="false true"></a>), slim_to_erb("a class=false *{class: true}")
+  end
+
+  it "merges the tag's class with the class of splats" do
+    converter = Herbst::Slim::Converter.new
+    document = converter.convert(".btn class=x *opts")
+    splat = %(**(_herbst_splat1 = (opts).to_h).except(:class, "class"))
+    classes = %(["btn", (x), _herbst_splat1.fetch(:class) { _herbst_splat1["class"] }].flatten.map(&:to_s).reject(&:empty?).join(" ").presence)
+
+    assert_equal %(<div <%= tag.attributes(#{splat}, class: #{classes}) %>></div>), Herbst::Printer.print(document, format: false)
+    assert_equal 1, converter.warnings.size
+  end
+
   it "falls back to tag.attributes for splats" do
     converter = Herbst::Slim::Converter.new
     document = converter.convert("p *attrs")

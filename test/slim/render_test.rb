@@ -81,6 +81,19 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     assert_equal expected.gsub(/(data-c|title)(?==|>| )/, '\\1=""'), actual.force_encoding(Encoding::UTF_8).delete("\n").squeeze(" ").gsub(/\s+>/, ">")
   end
 
+  it "merges the class of a splat that is a Hash literal like Slim" do
+    source = <<~SLIM
+      .cute *{class: "nice"} A
+      a.x class=role *{class: ["y"], title: name} B
+    SLIM
+
+    expected = Slim::Template.new(format: :html) { source }.render(Scope.new)
+    actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+
+    assert_equal %(<div class="cute nice">A</div><a class="x a y" title="&lt;World&gt;">B</a>), expected
+    assert_equal expected, actual.force_encoding(Encoding::UTF_8).delete("\n")
+  end
+
   private
 
   def without_block_whitespace(html)

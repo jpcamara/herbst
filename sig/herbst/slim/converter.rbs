@@ -12,6 +12,9 @@ module Herbst
       # It's prefixed so it doesn't hide a template's own local or helper.
       ATTRIBUTE_VALUE: String
 
+      # The prefix of the locals the ERB assigns splats to when their class is merged.
+      SPLAT: String
+
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS: Array[String]
 
@@ -114,6 +117,18 @@ module Herbst
 
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
+
+      # Slim merges the class of each splat into the tag's class. Ruby code for the tag's own class
+      # values, or nil when one can't be written as Ruby, as with interpolation.
+      #
+      # : (Array[untyped]) -> Array[String]?
+      def splat_class_code: (Array[untyped]) -> Array[String]?
+
+      # One `tag.attributes` call for all the splats, each assigned to a local so it's evaluated once,
+      # with their classes merged into the tag's.
+      #
+      # : (Array[String], Array[String]) -> String
+      def splat_attributes: (Array[String], Array[String]) -> String
 
       # : (Array[untyped]) -> Array[Herb::AST::Node]
       def convert_class: (Array[untyped]) -> Array[Herb::AST::Node]

@@ -17,6 +17,9 @@ module Herbst
       # It's prefixed so it doesn't hide a template's own local or helper.
       ATTRIBUTE_VALUE = "_herbst_attribute" #: String
 
+      # The prefix of the locals the ERB assigns splats to when their class is merged.
+      SPLAT = "_herbst_splat" #: String
+
       # Methods that always return a String, so their value is never `nil` or `false`.
       STRING_METHODS = ["to_s", "to_json", "to_param", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
 
@@ -35,6 +38,8 @@ module Herbst
 
       #: (String) -> Herb::AST::DocumentNode
       def convert(source)
+        # Slim ignores a byte order mark at the start of a template.
+        source = source.delete_prefix("\uFEFF")
         expression = ::Slim::Parser.new(@options).call(source)
         children = join(prepare([expression]), 0)
         strict_locals = source[STRICT_LOCALS, 1]
@@ -338,21 +343,62 @@ module Herbst
         splats = [] #: Array[String]
 
         expression.drop(2).each do |attribute|
-          if attribute[1] == :splat
-            splats << attribute[2]
-          else
+          if attribute[1] != :splat
             values[attribute[2].to_s] << attribute[3]
+          elsif (entries = hash_entries(attribute[2]))
+            # Slim renders a splat's entries like the tag's own attributes, so a Hash literal is expanded.
+            entries.each { |key, code| values[key] << [:slim, :attrvalue, true, code] }
+          else
+            splats << attribute[2]
           end
         end
+
+        classes = splat_class_code(values.fetch("class", [])) if splats.size > 1 || (splats.any? && values.key?("class"))
+        warn(nil, "the class of `*#{splats.join(" *")}` isn't merged with the tag's class, which has interpolation") if classes.nil? && values.key?("class") && splats.any?
+        values.delete("class") if classes
 
         nodes = values.keys.sort.flat_map do |name|
           name == "class" ? convert_class(values.fetch(name)) : convert_attribute(name, values.fetch(name).fetch(-1))
         end
 
-        nodes + splats.map do |code|
-          warn(nil, "`*#{code}` was converted to `tag.attributes`, which requires Rails 7.1+")
-          erb("tag.attributes(**#{code})")
+        splats.each { |code| warn(nil, "`*#{code}` was converted to `tag.attributes`, which requires Rails 7.1+") }
+        return nodes + splats.map { |code| erb("tag.attributes(**#{code})") } unless classes
+
+        nodes + [erb(splat_attributes(splats, classes))]
+      end
+
+      # Slim merges the class of each splat into the tag's class. Ruby code for the tag's own class
+      # values, or nil when one can't be written as Ruby, as with interpolation.
+      #
+      #: (Array[untyped]) -> Array[String]?
+      def splat_class_code(values)
+        values.map do |value|
+          case value[0]
+          when :static
+            value[1].to_s.inspect
+          when :slim
+            "(#{value[3].strip})"
+          when :escape
+            string = value[2][2].to_s
+            return nil if string.include?("\#{")
+
+            string.inspect
+          else
+            return nil
+          end
         end
+      end
+
+      # One `tag.attributes` call for all the splats, each assigned to a local so it's evaluated once,
+      # with their classes merged into the tag's.
+      #
+      #: (Array[String], Array[String]) -> String
+      def splat_attributes(splats, classes)
+        locals = splats.each_index.map { |index| "#{SPLAT}#{index + 1}" }
+        attributes = splats.zip(locals).map { |code, local| "**(#{local} = (#{code}).to_h).except(:class, \"class\")" }
+        classes += locals.map { |local| "#{local}.fetch(:class) { #{local}[\"class\"] }" }
+
+        "tag.attributes(#{attributes.join(", ")}, class: [#{classes.join(", ")}].flatten.map(&:to_s).reject(&:empty?).join(\" \").presence)"
       end
 
       #: (Array[untyped]) -> Array[Herb::AST::Node]
