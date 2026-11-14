@@ -66,7 +66,7 @@ herbst convert app/views                        # writes show.html.erb next to s
 
 A single file is printed unless you pass `--write`. Directories, and several files at once, are written next to their sources with the `.haml` or `.slim` extension replaced by `.erb`, so `show.html.haml` becomes `show.html.erb`. A file without a format gets `html`, so `show.haml` becomes `show.html.erb`. Pass `--default-format FORMAT` for another format, or `--no-default-format` to write `show.erb`. The Haml and Slim files are kept, and existing ERB files are skipped unless you pass `--force`. Pass `--no-format` to skip the Herb formatter.
 
-Constructs that cannot be converted exactly (for example splatted attribute hashes, which become `tag.attributes(...)`) are reported as warnings. Files that can't be converted, for example because they use an unsupported filter such as `:markdown`, are reported and the remaining files are still converted.
+Constructs that cannot be converted exactly are reported as warnings. Files that can't be converted, for example because they use an unsupported filter such as `:markdown`, are reported and the remaining files are still converted.
 
 The CLI also checks that the ERB parses back into exactly the tree Herbst built, and reports any difference. Pass `--no-verify` to skip the check. The same check is available as `Herbst::RoundTrip.difference(document, erb)`. The CLI exits with status 1 when a file fails to convert or the check finds a difference.
 

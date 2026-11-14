@@ -56,9 +56,25 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<p>Hello <code>x</code></p>", slim_to_erb("p Hello <code>x</code>")
   end
 
+  it "converts a when on the case line, with the lines under it as its body" do
+    assert_equal "<% case x %><% when 1 %>one<% when 2 %>two<% end %>", slim_to_erb("- case x when 1\n  | one\n- when 2\n  | two")
+  end
+
   it "converts case / when" do
     slim = "- case x\n- when 1\n  | one\n- else\n  | other"
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb(slim)
+  end
+
+  it "puts nothing between case and the first when, since Erubi can't compile it" do
+    slim = "tr\n  - if a\n    th x\n  - case k\n  - when 1\n    td one\n  - when 2\n    td two"
+    assert_match "<% case k %><% when 1 %>\n", slim_to_erb(slim)
+  end
+
+  it "keeps strict locals, which Rails reads from the template source" do
+    assert_equal "<%# locals: (path:, network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:, network: nil)\np = path")
+    assert_equal "<p>x</p>", slim_to_erb("/ locals are documented elsewhere\np x")
+    assert_equal "<!--# locals: (path:)-->", slim_to_erb("/!# locals: (path:)")
+    assert_equal "<%# locals: (path:,\n  network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:,\n  network: nil)\np = path")
   end
 
   it "converts blocks and adds the do Slim adds" do
@@ -68,29 +84,104 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   end
 
   it "expands data and aria hashes like Slim" do
-    assert_equal %(<p data-action="click" data-user_id="<%= user.id %>"></p>), slim_to_erb(%(p data={ action: "click", user_id: user.id }))
+    assert_equal %(<p data-action="click" data-user_id="<%= (_herbst_attribute = user.id) == true ? nil : _herbst_attribute %>"></p>),
+                 slim_to_erb(%(p data={ action: "click", user_id: user.id }))
+    assert_equal %(<p data-a="" data-b="false" data-c></p>), slim_to_erb(%(p data={ a: nil, b: false, c: true }))
     assert_equal %(<p aria-label="x" data-a-b="1"></p>), slim_to_erb(%(p aria={ label: "x" } data={ a: { b: 1 } }))
   end
 
+  it "converts the attributes of a tag with a data or aria hash that isn't a literal to code" do
+    converter = Herbst::Slim::Converter.new
+    document = converter.convert("li data=option[:data] aria=labels")
+
+    assert Herbst::Printer.print(document, format: false).start_with?(%(<li <%== [[{ "data" => (option[:data]) }, true], [{ "aria" => (labels) }, true]].then { ))
+    assert_empty converter.warnings
+  end
+
   it "converts attributes like Slim" do
-    assert_equal %(<a href="<%= url %>" title="A &amp; B">x</a>), slim_to_erb(%(a href=url title="A & B" x))
+    assert_equal %(<a href="<%= url_path %>" title="A &amp; B">x</a>), slim_to_erb(%(a href=url_path title="A & B" x))
     assert_equal %(<input checked type="checkbox">), slim_to_erb(%(input type="checkbox" checked=true disabled=false))
     assert_equal %(<input <%= "disabled" if off %>>), slim_to_erb("input disabled=off")
     assert_equal %(<p data-id="1"></p>), slim_to_erb("p data-id=1")
   end
 
-  it "merges classes" do
-    assert_equal %(<p class="a <%= b %>"></p>), slim_to_erb("p.a class=b")
-    assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))
-    assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
+  it "leaves out attributes whose value is nil or false, like Slim" do
+    assert_equal %(<a <% if (_herbst_attribute = url) %>href="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>>x</a>), slim_to_erb("a href=url x")
+    assert_equal %(<script <% if (_herbst_attribute = nonce) %>nonce="<%== _herbst_attribute unless _herbst_attribute == true %>"<% end %>></script>), slim_to_erb("script nonce==nonce")
+    assert_equal %(<p id="<%= dom_id(record) %>"></p>), slim_to_erb("p id=dom_id(record)")
+    assert_equal %(<option <%= "selected" if on %> <% if (_herbst_attribute = id) %>value="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></option>),
+                 slim_to_erb("option selected=on value=id")
   end
 
-  it "falls back to tag.attributes for splats" do
-    converter = Herbst::Slim::Converter.new
-    document = converter.convert("p *attrs")
+  it "keeps route helpers as plain attributes, but not methods on a receiver with the same suffix" do
+    assert_equal %(<a href="<%= root_path %>">x</a>), slim_to_erb("a href=root_path x")
+    assert_equal %(<a <% if (_herbst_attribute = file.cloud_url) %>href="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>>x</a>), slim_to_erb("a href=file.cloud_url x")
+    assert_equal %(<p <% if (_herbst_attribute = user.to_param) %>id="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></p>), slim_to_erb("p id=user.to_param")
+    assert_equal %(<p title="<%= user.name.to_s %>"></p>), slim_to_erb("p title=user.name.to_s")
+  end
 
-    assert_equal %(<p <%= tag.attributes(**attrs) %>></p>), Herbst::Printer.print(document, format: false)
+  it "renders true as an empty attribute value, like Slim" do
+    assert_equal %(<p <% if (_herbst_attribute = (true if locked)) %>data-tip="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></p>),
+                 slim_to_erb("p data-tip=(true if locked)")
+    assert_equal %(<p <% if (_herbst_attribute = user.admin?) %>title="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></p>),
+                 slim_to_erb("p title=user.admin?")
+    assert_equal %(<td <% if (_herbst_attribute = (wide? ? 4 : 3)) %>colspan="<%= _herbst_attribute unless _herbst_attribute == true %>"<% end %>></td>), slim_to_erb("td colspan=(wide? ? 4 : 3)")
+  end
+
+  it "merges classes" do
+    assert_equal %(<p class="a <%= [b].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb("p.a class=b")
+    assert_equal %(<p class="a b c"></p>), slim_to_erb(%(p.a class=["b", "c"]))
+    assert_equal %(<p class="<%= [b, "c"].flatten.map(&:to_s).reject(&:empty?).join(" ") %>"></p>), slim_to_erb(%(p class=[b, "c"]))
+    assert_equal %(<p class="a b"></p>), slim_to_erb(%(p.a class=nil class="b"))
+    assert_equal %(<p></p>), slim_to_erb("p class=nil")
+  end
+
+  it "leaves out a class that is nil or empty, and keeps false, like Slim" do
+    assert_equal %(<p <% if (_herbst_attribute = [cls].flatten.map(&:to_s).reject(&:empty?).join(" ")) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>),
+                 slim_to_erb("p class=cls")
+  end
+
+  it "leaves out a class that is only interpolation when it's empty, like Slim" do
+    assert_equal %(<p <% if (_herbst_attribute = (cls).to_s) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
+    assert_equal %(<p <% if (_herbst_attribute = "\#{a}\#{b}") != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
+    assert_equal %(<p class="<%= a %> b"></p>), slim_to_erb(%(p class="\#{a} b"))
+  end
+
+  it "wraps class code that isn't an Array literal, since it can return an Array" do
+    code = %([a, b].compact.join(" ").presence)
+    expected = %([#{code}].flatten.map(&:to_s).reject(&:empty?).join(" "))
+
+    assert_equal %(<p <% if (_herbst_attribute = #{expected}) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb("p class=#{code}")
+  end
+
+  it "ignores a byte order mark, like Slim" do
+    assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
+  end
+
+  it "expands a splat that is a Hash literal, merging its class like Slim" do
+    assert_equal %(<div class="cute nice">Hello</div>), slim_to_erb(%(.cute *{class: "nice"} Hello))
+    assert_equal %(<a class="false true"></a>), slim_to_erb("a class=false *{class: true}")
+  end
+
+  it "converts the attributes of a tag with a splat to code" do
+    converter = Herbst::Slim::Converter.new
+    document = converter.convert(%(.btn(class=x title="a \#{b}" disabled *opts)))
+
+    entries = %([[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "title" => "a \#{b}" }, true], [{ "disabled" => true }, false], [(opts), true]])
+    assert Herbst::Printer.print(document, format: false).start_with?(%(<div <%== #{entries}.then { ))
+    assert_empty converter.warnings
+  end
+
+  it "keeps the attributes of a tag with a splat that can't be code" do
+    converter = Herbst::Slim::Converter.new
+    document = converter.convert(%(p title="\#{{html}}" *opts))
+
+    assert Herbst::Printer.print(document, format: false).start_with?(%(<p title="<%== html %>" <%== [[(opts), true]].then { ))
     assert_equal 1, converter.warnings.size
+  end
+
+  it "converts an output if without content" do
+    assert_equal %(<% if true %><% end %>), slim_to_erb("= if true")
   end
 
   it "converts comments and doctypes" do

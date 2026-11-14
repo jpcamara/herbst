@@ -292,13 +292,25 @@ module Herbst
     def open_tag_children(attributes)
       attributes.each_with_index.flat_map do |node, index|
         # Herb reads ERB in an open tag as an attribute name when an attribute with a value follows it.
-        valued = attributes.drop(index + 1).any? { |following| following.is_a?(Herb::AST::HTMLAttributeNode) && following.equals }
+        valued = attributes.drop(index + 1).any? { |following| valued_attribute?(following) }
 
         if node.is_a?(Herb::AST::ERBContentNode) && valued
           [whitespace, attribute(node)]
         else
           [whitespace, node]
         end
+      end
+    end
+
+    #: (Herb::AST::Node) -> bool
+    def valued_attribute?(node)
+      case node
+      when Herb::AST::HTMLAttributeNode
+        !node.equals.nil?
+      when Herb::AST::ERBIfNode
+        node.statements.any? { |statement| valued_attribute?(statement) }
+      else
+        false
       end
     end
 

@@ -5,6 +5,21 @@ module Herbst
     class Converter < Herbst::Converter
       HYPHEN_ATTRIBUTES: Array[String]
 
+      # Slim removes these attributes when their value is empty, as its `merge_attrs` option does.
+      REMOVE_EMPTY_ATTRIBUTES: Array[String]
+
+      # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
+      # It's prefixed so it doesn't hide a template's own local or helper.
+      ATTRIBUTE_VALUE: String
+
+      # Methods that always return a String, so their value is never `nil` or `false`. (`to_param`
+      # isn't one: it returns `nil` for a record that isn't saved.)
+      STRING_METHODS: Array[String]
+
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops. Like Rails, the locals can continue on the following lines.
+      STRICT_LOCALS: Regexp
+
       @options: Hash[Symbol, untyped]
 
       # : (?Hash[Symbol, untyped]) -> void
@@ -63,6 +78,12 @@ module Herbst
       # : (String, untyped, Array[untyped], Integer) -> Array[Herb::AST::Node]
       def convert_control: (String, untyped, Array[untyped], Integer) -> Array[Herb::AST::Node]
 
+      # Slim accepts the first clause on the `- case` line, as in `- case value when 1`. The lines indented
+      # under it are that clause's body, so they move into a clause of their own.
+      #
+      # : (String, untyped, Array[untyped]) -> [String, untyped, Array[untyped]]
+      def inline_clause: (String, untyped, Array[untyped]) -> [ String, untyped, Array[untyped] ]
+
       # Slim also accepts the `- when` lines of a `- case` indented under it.
       #
       # : (untyped) -> [untyped, Array[untyped]]
@@ -95,11 +116,60 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
 
+      # : (untyped) -> bool
+      def runtime_hash?: (untyped) -> bool
+
+      # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
+      # values. Nil when the attribute can't be written as Ruby.
+      #
+      # : (untyped) -> String?
+      def attribute_entry: (untyped) -> String?
+
+      # Ruby code for a quoted attribute value with interpolation. Nil for an unescaped interpolation,
+      # as in `#{{html}}`, which Slim doesn't escape again.
+      #
+      # : (String) -> String?
+      def string_code: (String) -> String?
+
+      # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
+      # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
+      # an empty value, `false` and `nil` leave an attribute out, and a duplicate raises. All the code
+      # from the template is evaluated first, so the names in the blocks don't hide its locals.
+      #
+      # : (Array[String]) -> String
+      def attributes_code: (Array[String]) -> String
+
       # : (Array[untyped]) -> Array[Herb::AST::Node]
       def convert_class: (Array[untyped]) -> Array[Herb::AST::Node]
 
       # : (untyped) -> Array[Herb::AST::Node]
       def class_value: (untyped) -> Array[Herb::AST::Node]
+
+      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
+      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      #
+      # : (String) -> String?
+      def interpolation_code: (String) -> String?
+
+      # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
+      # Array literal can return an Array or not, so it's wrapped in one.
+      #
+      # : (String) -> String
+      def class_code: (String) -> String
+
+      # : (String) -> Prism::node?
+      def ruby_node: (String) -> Prism::node?
+
+      # Whether the code's value is a String that Slim renders as is, so the attribute is never left out.
+      #
+      # : (String, String) -> bool
+      def present?: (String, String) -> bool
+
+      # Slim leaves out an attribute whose value is `nil` or `false`. It leaves out REMOVE_EMPTY_ATTRIBUTES
+      # only when empty, so their code must return a String, where `false` stays as "false".
+      #
+      # : (String, String, bool) -> Array[Herb::AST::Node]
+      def optional_attribute: (String, String, bool) -> Array[Herb::AST::Node]
 
       # : (String, bool) -> Array[Herb::AST::Node]
       def attribute_value: (String, bool) -> Array[Herb::AST::Node]
@@ -112,6 +182,12 @@ module Herbst
 
       # : (String, bool, String) -> Array[Herb::AST::Node]
       def convert_hash_attribute: (String, bool, String) -> Array[Herb::AST::Node]
+
+      # Slim renders a value in a data or aria hash as a String, so `nil` is empty and `false` is
+      # "false". It renders `true` as an attribute without a value, which is the same as an empty one.
+      #
+      # : (String, bool, String) -> Array[Herb::AST::Node]
+      def convert_hash_value: (String, bool, String) -> Array[Herb::AST::Node]
 
       # : (String) -> Array[[String, String]]?
       def hash_entries: (String) -> Array[[ String, String ]]?

@@ -10,6 +10,21 @@ module Herbst
     class Converter < Herbst::Converter
       HYPHEN_ATTRIBUTES = ["data", "aria"].freeze #: Array[String]
 
+      # Slim removes these attributes when their value is empty, as its `merge_attrs` option does.
+      REMOVE_EMPTY_ATTRIBUTES = ["class"].freeze #: Array[String]
+
+      # The local the ERB assigns an attribute's value to, so it's evaluated once and left out when it's `nil` or `false`.
+      # It's prefixed so it doesn't hide a template's own local or helper.
+      ATTRIBUTE_VALUE = "_herbst_attribute" #: String
+
+      # Methods that always return a String, so their value is never `nil` or `false`. (`to_param`
+      # isn't one: it returns `nil` for a record that isn't saved.)
+      STRING_METHODS = ["to_s", "to_json", "join", "inspect", "t", "translate", "dom_id"].freeze #: Array[String]
+
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops. Like Rails, the locals can continue on the following lines.
+      STRICT_LOCALS = %r{^[ \t]*/(?!!)[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
+
       # @rbs @options: Hash[Symbol, untyped]
 
       #: (?Hash[Symbol, untyped]) -> void
@@ -21,8 +36,12 @@ module Herbst
 
       #: (String) -> Herb::AST::DocumentNode
       def convert(source)
+        # Slim ignores a byte order mark at the start of a template.
+        source = source.delete_prefix("\uFEFF")
         expression = ::Slim::Parser.new(@options).call(source)
         children = join(prepare([expression]), 0)
+        strict_locals = source[STRICT_LOCALS, 1]
+        children.unshift(erb_comment(strict_locals), text("\n")) if strict_locals
 
         finish(document(children))
       rescue ::Slim::Parser::SyntaxError => e
@@ -209,6 +228,8 @@ module Herbst
         opening = escape ? "<%=" : "<%=="
         children = body(content, depth)
 
+        # Slim closes `= if` with an `end` even without content, and the `if` returns nil.
+        return convert_control(item[3], content, [], depth) if children.empty? && code.match?(::Slim::EndInserter::IF_RE)
         return [*comment_nodes(comment), erb(code, opening: opening)] if children.empty? && !opens_block?(code)
 
         [*comment_nodes(comment), erb_block(block_code(code), children, opening: opening)]
@@ -220,6 +241,7 @@ module Herbst
         return comment_nodes(comment) if code.empty?
 
         content, clause_items = nested_clauses(content) if keyword(code) == "case" && clause_items.empty?
+        code, content, clause_items = inline_clause(code, content, clause_items) if keyword(code) == "case"
 
         children = body(content, depth)
         return [*comment_nodes(comment), erb(code, opening: "<%")] if children.empty? && clause_items.empty? && !code.match?(::Slim::EndInserter::IF_RE)
@@ -230,6 +252,21 @@ module Herbst
         end
 
         [*comment_nodes(comment), control(block_code(code), keyword(code), children, clauses, depth)]
+      end
+
+      # Slim accepts the first clause on the `- case` line, as in `- case value when 1`. The lines indented
+      # under it are that clause's body, so they move into a clause of their own.
+      #
+      #: (String, untyped, Array[untyped]) -> [String, untyped, Array[untyped]]
+      def inline_clause(code, content, clause_items)
+        node = ruby_node("#{code}\nend")
+        return [code, content, clause_items] unless node.is_a?(Prism::CaseNode) || node.is_a?(Prism::CaseMatchNode)
+
+        first = node.conditions.first
+        return [code, content, clause_items] unless first
+
+        offset = first.location.start_offset
+        [code.byteslice(0, offset).to_s.rstrip, [:multi], [[:slim, :control, code.byteslice(offset..).to_s, content], *clause_items]]
       end
 
       # Slim also accepts the `- when` lines of a `- case` indented under it.
@@ -302,29 +339,116 @@ module Herbst
 
       #: (untyped) -> Array[Herb::AST::Node]
       def convert_attributes(expression)
+        attributes = expression.drop(2)
+        splat = attributes.any? { |attribute| attribute[1] == :splat ? !hash_entries(attribute[2]) : runtime_hash?(attribute) }
+        # Slim renders all the attributes of a tag with a splat at runtime, as it does a data or aria
+        # Hash that isn't a literal, so they're converted to code.
+        return [erb(attributes_code(attributes.map { |attribute| attribute_entry(attribute) }), opening: "<%==")] if splat && attributes.all? { |attribute| attribute_entry(attribute) }
+
         values = Hash.new { |hash, key| hash[key] = [] } #: Hash[String, Array[untyped]]
         splats = [] #: Array[String]
 
-        expression.drop(2).each do |attribute|
-          if attribute[1] == :splat
-            splats << attribute[2]
-          else
+        attributes.each do |attribute|
+          if attribute[1] != :splat
             values[attribute[2].to_s] << attribute[3]
+          elsif (entries = hash_entries(attribute[2]))
+            # Slim renders a splat's entries like the tag's own attributes, so a Hash literal is expanded.
+            entries.each { |key, code| values[key] << [:slim, :attrvalue, true, code] }
+          else
+            splats << attribute[2]
           end
         end
+        warn(nil, "the attributes of `*#{splats.join(" *")}` aren't merged with the tag's, which can't be converted to code") if splats.any?
 
         nodes = values.keys.sort.flat_map do |name|
           name == "class" ? convert_class(values.fetch(name)) : convert_attribute(name, values.fetch(name).fetch(-1))
         end
 
-        nodes + splats.map do |code|
-          warn(nil, "`*#{code}` was converted to `tag.attributes`, which requires Rails 7.1+")
-          erb("tag.attributes(**#{code})")
-        end
+        nodes + splats.map { |code| erb(attributes_code(["[(#{code.strip}), true]"]), opening: "<%==") }
+      end
+
+      #: (untyped) -> bool
+      def runtime_hash?(attribute)
+        value = attribute[3]
+        return false unless HYPHEN_ATTRIBUTES.include?(attribute[2].to_s) && value[0] == :slim
+
+        !hash_entries(value[3]) && !Temple::StaticAnalyzer.static?(value[3])
+      end
+
+      # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
+      # values. Nil when the attribute can't be written as Ruby.
+      #
+      #: (untyped) -> String?
+      def attribute_entry(attribute)
+        return "[(#{attribute[2].strip}), true]" if attribute[1] == :splat
+
+        value = attribute[3]
+        code, escape =
+          case value[0]
+          when :static then [value[1].to_s.inspect, false]
+          when :multi then ["true", false]
+          when :slim then ["(#{value[3].strip})", value[2]]
+          when :escape then [string_code(value[2][2].to_s), value[1]]
+          end
+        return nil unless code
+
+        "[{ #{attribute[2].to_s.inspect} => #{code} }, #{escape}]"
+      end
+
+      # Ruby code for a quoted attribute value with interpolation. Nil for an unescaped interpolation,
+      # as in `#{{html}}`, which Slim doesn't escape again.
+      #
+      #: (String) -> String?
+      def string_code(string)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
+        return nil if parts.any? { |part| part[0] != :static && !part[2] }
+
+        "\"#{parts.map { |part| part[0] == :static ? part[1].to_s.inspect[1...-1] : "\#{#{part[3].strip}}" }.join}\""
+      end
+
+      # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
+      # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
+      # an empty value, `false` and `nil` leave an attribute out, and a duplicate raises. All the code
+      # from the template is evaluated first, so the names in the blocks don't hide its locals.
+      #
+      #: (Array[String]) -> String
+      def attributes_code(entries)
+        <<~RUBY.strip.gsub(/\n\s*/, "; ")
+          [#{entries.join(", ")}].then { |_herbst_entries|
+            _herbst_attributes = {}
+            _herbst_add = lambda { |_herbst_name, _herbst_value, _herbst_escape, _herbst_nested|
+              if Hash === _herbst_value && (_herbst_nested || _herbst_name == "data" || _herbst_name == "aria")
+                _herbst_value.each { |_herbst_key, _herbst_item| _herbst_add.("\#{_herbst_name}-\#{_herbst_key}", _herbst_item, _herbst_escape, true) }
+              elsif _herbst_name == "class"
+                _herbst_value = Array === _herbst_value ? _herbst_value.join(" ") : _herbst_value.to_s
+                _herbst_value = ERB::Util.html_escape(String.new(_herbst_value)) if _herbst_escape
+                _herbst_attributes["class"] = [_herbst_attributes["class"], _herbst_value].compact.join(" ") unless _herbst_value.empty?
+              elsif _herbst_nested || !(_herbst_value.nil? || _herbst_value == false)
+                raise "Multiple \#{_herbst_name} attributes specified" if _herbst_attributes.key?(_herbst_name)
+                _herbst_value = ERB::Util.html_escape(String.new(_herbst_value.to_s)) if _herbst_escape && _herbst_value != true
+                _herbst_attributes[_herbst_name] = _herbst_value == true ? "" : _herbst_value.to_s
+              end
+            }
+            _herbst_entries.each { |_herbst_hash, _herbst_escape| _herbst_hash.to_h.each { |_herbst_name, _herbst_value| _herbst_add.(_herbst_name.to_s, _herbst_value, _herbst_escape, false) } }
+            _herbst_attributes.sort.map { |_herbst_name, _herbst_value| %(\#{_herbst_name}="\#{_herbst_value}") }.join(" ")
+          }
+        RUBY
       end
 
       #: (Array[untyped]) -> Array[Herb::AST::Node]
       def convert_class(values)
+        _slim, kind, escape, code = values.fetch(0)
+
+        if values.size == 1 && kind == :attrvalue && !Temple::StaticAnalyzer.static?(code)
+          return [attribute("class", [erb(class_code(code), opening: escape ? "<%=" : "<%==")])] if present?(code, "class")
+
+          return optional_attribute("class", class_code(code), escape)
+        end
+
+        if values.size == 1 && values.fetch(0)[0] == :escape && (code = interpolation_code(values.fetch(0)[2][2]))
+          return optional_attribute("class", code, values.fetch(0)[1])
+        end
+
         parts = values.filter_map do |value|
           nodes = class_value(value)
           nodes unless nodes.empty?
@@ -344,13 +468,90 @@ module Herbst
           attribute_value(value[2][2], value[1])
         when :slim
           _slim, _attrvalue, escape, code = value
-          return [literal(static_class(code))] if Temple::StaticAnalyzer.static?(code)
+          if Temple::StaticAnalyzer.static?(code)
+            value = static_class(code)
+            return value.empty? ? [] : [literal(value)]
+          end
 
-          code = "#{code}.flatten.map(&:to_s).reject(&:empty?).join(\" \")" if code.strip.start_with?("[")
-          [erb(code, opening: escape ? "<%=" : "<%==")]
+          [erb(class_code(code), opening: escape ? "<%=" : "<%==")]
         else
           []
         end
+      end
+
+      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
+      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      #
+      #: (String) -> String?
+      def interpolation_code(string)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
+        return nil if parts.empty? || parts.any? { |part| part[0] == :static ? !part[1].empty? : !part[2] }
+
+        codes = parts.reject { |part| part[0] == :static }.map { |part| part[3].strip }
+        return "(#{codes.first}).to_s" if codes.size == 1
+
+        "\"#{codes.map { |code| "\#{#{code}}" }.join}\""
+      end
+
+      # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
+      # Array literal can return an Array or not, so it's wrapped in one.
+      #
+      #: (String) -> String
+      def class_code(code)
+        code = "[#{code.strip}]" unless ruby_node(code).is_a?(Prism::ArrayNode)
+
+        "#{code}.flatten.map(&:to_s).reject(&:empty?).join(\" \")"
+      end
+
+      #: (String) -> Prism::node?
+      def ruby_node(code)
+        Prism.parse(code).value.statements.body.first
+      end
+
+      # Whether the code's value is a String that Slim renders as is, so the attribute is never left out.
+      #
+      #: (String, String) -> bool
+      def present?(code, name)
+        node = ruby_node(code)
+
+        case node
+        when Prism::StringNode
+          !node.unescaped.empty?
+        when Prism::InterpolatedStringNode
+          node.parts.any? { |part| part.is_a?(Prism::StringNode) && !part.unescaped.empty? }
+        when Prism::IntegerNode, Prism::FloatNode
+          true
+        when Prism::ArrayNode
+          node.elements.any? { |element| element.is_a?(Prism::StringNode) && !element.unescaped.strip.empty? }
+        when Prism::CallNode
+          return false if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+
+          method = node.name.to_s
+          return true if STRING_METHODS.include?(method)
+
+          # Route helpers are called without a receiver. A model method such as `file.cloud_url` can return `nil`.
+          node.receiver.nil? && method.end_with?("_path", "_url")
+        else
+          false
+        end
+      end
+
+      # Slim leaves out an attribute whose value is `nil` or `false`. It leaves out REMOVE_EMPTY_ATTRIBUTES
+      # only when empty, so their code must return a String, where `false` stays as "false".
+      #
+      #: (String, String, bool) -> Array[Herb::AST::Node]
+      def optional_attribute(name, code, escape)
+        condition =
+          if REMOVE_EMPTY_ATTRIBUTES.include?(name)
+            "if (#{ATTRIBUTE_VALUE} = #{code.strip}) != \"\""
+          else
+            "if (#{ATTRIBUTE_VALUE} = #{code.strip})"
+          end
+        value = ATTRIBUTE_VALUE
+        # Slim renders `true` as an attribute without a value, which is the same as an empty one.
+        value += " unless #{ATTRIBUTE_VALUE} == true" unless REMOVE_EMPTY_ATTRIBUTES.include?(name)
+
+        [erb_if(condition, [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])])]
       end
 
       #: (String, bool) -> Array[Herb::AST::Node]
@@ -378,7 +579,7 @@ module Herbst
         when :escape
           [attribute(name, attribute_value(value[2][2], value[1]))]
         when :slim
-          if HYPHEN_ATTRIBUTES.include?(name) && value[3].strip.start_with?("{")
+          if HYPHEN_ATTRIBUTES.include?(name) && (value[3].strip.start_with?("{") || !Temple::StaticAnalyzer.static?(value[3]))
             convert_hash_attribute(name, value[2], value[3])
           else
             convert_code_attribute(name, value[2], value[3])
@@ -393,17 +594,34 @@ module Herbst
         entries = hash_entries(code)
 
         unless entries
-          warn(nil, "`#{name}=#{code}` was converted to `tag.attributes`, which requires Rails 7.1+")
-          return [erb("tag.attributes(#{name}: #{code})")]
+          return [erb(attributes_code(["[{ #{name.inspect} => (#{code.strip}) }, #{escape}]"]), opening: "<%==")]
         end
 
         entries.flat_map do |key, value|
           if value.strip.start_with?("{")
             convert_hash_attribute("#{name}-#{key}", escape, value)
           else
-            convert_code_attribute("#{name}-#{key}", escape, value)
+            convert_hash_value("#{name}-#{key}", escape, value)
           end
         end
+      end
+
+      # Slim renders a value in a data or aria hash as a String, so `nil` is empty and `false` is
+      # "false". It renders `true` as an attribute without a value, which is the same as an empty one.
+      #
+      #: (String, bool, String) -> Array[Herb::AST::Node]
+      def convert_hash_value(name, escape, code)
+        if Temple::StaticAnalyzer.static?(code)
+          value = eval(code) # rubocop:disable Security/Eval
+          return [attribute(name)] if value == true
+
+          return [attribute(name, [literal(escape ? CGI.escapeHTML(value.to_s) : value.to_s)])]
+        end
+
+        return [attribute(name, [erb(code, opening: escape ? "<%=" : "<%==")])] if present?(code, name)
+
+        value = "(#{ATTRIBUTE_VALUE} = #{code.strip}) == true ? nil : #{ATTRIBUTE_VALUE}"
+        [attribute(name, [erb(value, opening: escape ? "<%=" : "<%==")])]
       end
 
       #: (String) -> Array[[String, String]]?
@@ -442,8 +660,10 @@ module Herbst
 
           if Herb::HTML::Util.boolean_attribute?(name)
             [erb("#{name.inspect} if #{code}")]
-          else
+          elsif present?(code, name)
             [attribute(name, [erb(code, opening: escape ? "<%=" : "<%==")])]
+          else
+            optional_attribute(name, code, escape)
           end
         end
       end
