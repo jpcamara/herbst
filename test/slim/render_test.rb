@@ -81,6 +81,37 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     assert_equal expected.gsub(/(data-c|title)(?==|>| )/, '\\1=""'), actual.force_encoding(Encoding::UTF_8).delete("\n").squeeze(" ").gsub(/\s+>/, ">")
   end
 
+  it "renders the attributes of a tag with a splat like Slim" do
+    splats = [
+      { disabled: true, hidden: false, title: nil }, { title: "", tabindex: 1, role: :button }, { title: %(a"b<c&'), foo_bar: 1 },
+      { "aria-label" => "x" }, { data: { id: 1, user_name: "x", c: { e: 1 }, a: nil, b: false, t: true, ids: [1, 2] } },
+      { data: "x" }, { aria: { label: "x", hidden: true } }, { class: ["a", nil, "b"] }, { class: :a }, { id: ["a", "b"] },
+      { style: { color: "red" } }, { "class" => "s", class: "t" }, {}
+    ]
+    sources = [%(p *opts), %(a.x#i(class=extra title="t \#{name}" disabled *opts)), %(a href=url data=opts[:data] *opts.except(:data))]
+
+    sources.product(splats).each do |source, opts|
+      code = Herbst::Slim.to_erb(source)[/<%== (.*) %>/, 1]
+      scope = Scope.new.instance_eval { binding }.tap { |binding| binding.local_variable_set(:opts, opts) }
+      begin
+        expected = Slim::Template.new(format: :xhtml) { source }.render(Scope.new, opts: opts)
+      rescue RuntimeError => e
+        assert_raises(RuntimeError, e.message) { scope.eval(code) }
+        next
+      end
+      attributes = scope.eval(code)
+
+      assert_equal expected, %(#{expected[/\A<\w+/]}#{" " unless attributes.empty?}#{attributes}>#{expected[%r{</\w+>\z}]}), "#{source} with #{opts}"
+    end
+  end
+
+  it "raises for a duplicate attribute of a tag with a splat like Slim" do
+    code = Herbst::Slim.to_erb(%(p title="a" *opts))[/<%== (.*) %>/, 1]
+    scope = Scope.new.instance_eval { binding }.tap { |binding| binding.local_variable_set(:opts, { title: "b" }) }
+
+    assert_raises(RuntimeError, "Multiple title attributes specified") { scope.eval(code) }
+  end
+
   it "merges the class of a splat that is a Hash literal like Slim" do
     source = <<~SLIM
       .cute *{class: "nice"} A

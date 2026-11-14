@@ -12,14 +12,12 @@ module Herbst
       # It's prefixed so it doesn't hide a template's own local or helper.
       ATTRIBUTE_VALUE: String
 
-      # The prefix of the locals the ERB assigns splats to when their class is merged.
-      SPLAT: String
-
-      # Methods that always return a String, so their value is never `nil` or `false`.
+      # Methods that always return a String, so their value is never `nil` or `false`. (`to_param`
+      # isn't one: it returns `nil` for a record that isn't saved.)
       STRING_METHODS: Array[String]
 
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
-      # that the parser drops.
+      # that the parser drops. Like Rails, the locals can continue on the following lines.
       STRICT_LOCALS: Regexp
 
       @options: Hash[Symbol, untyped]
@@ -118,17 +116,28 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
 
-      # Slim merges the class of each splat into the tag's class. Ruby code for the tag's own class
-      # values, or nil when one can't be written as Ruby, as with interpolation.
-      #
-      # : (Array[untyped]) -> Array[String]?
-      def splat_class_code: (Array[untyped]) -> Array[String]?
+      # : (untyped) -> bool
+      def runtime_hash?: (untyped) -> bool
 
-      # One `tag.attributes` call for all the splats, each assigned to a local so it's evaluated once,
-      # with their classes merged into the tag's.
+      # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
+      # values. Nil when the attribute can't be written as Ruby.
       #
-      # : (Array[String], Array[String]) -> String
-      def splat_attributes: (Array[String], Array[String]) -> String
+      # : (untyped) -> String?
+      def attribute_entry: (untyped) -> String?
+
+      # Ruby code for a quoted attribute value with interpolation. Nil for an unescaped interpolation,
+      # as in `#{{html}}`, which Slim doesn't escape again.
+      #
+      # : (String) -> String?
+      def string_code: (String) -> String?
+
+      # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
+      # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
+      # an empty value, `false` and `nil` leave an attribute out, and a duplicate raises. All the code
+      # from the template is evaluated first, so the names in the blocks don't hide its locals.
+      #
+      # : (Array[String]) -> String
+      def attributes_code: (Array[String]) -> String
 
       # : (Array[untyped]) -> Array[Herb::AST::Node]
       def convert_class: (Array[untyped]) -> Array[Herb::AST::Node]
