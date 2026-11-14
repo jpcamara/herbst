@@ -87,6 +87,8 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p data-action="click" data-user_id="<%= (_herbst_attribute = user.id) == true ? nil : _herbst_attribute %>"></p>),
                  slim_to_erb(%(p data={ action: "click", user_id: user.id }))
     assert_equal %(<p data-a="" data-b="false" data-c></p>), slim_to_erb(%(p data={ a: nil, b: false, c: true }))
+    assert_equal %(<p data-a="&lt;b&gt;" data-b="<%= user.to_s %>"></p>), slim_to_erb(%(p data={ a: "<b>", b: user.to_s }))
+    assert_equal %(<p data="1"></p>), slim_to_erb("p data=1")
     assert_equal %(<p aria-label="x" data-a-b="1"></p>), slim_to_erb(%(p aria={ label: "x" } data={ a: { b: 1 } }))
   end
 
@@ -145,6 +147,8 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal %(<p <% if (_herbst_attribute = (cls).to_s) != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{cls}"))
     assert_equal %(<p <% if (_herbst_attribute = "\#{a}\#{b}") != "" %>class="<%= _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{a}\#{b}"))
     assert_equal %(<p class="<%= a %> b"></p>), slim_to_erb(%(p class="\#{a} b"))
+    assert_equal %(<p <% if (_herbst_attribute = (html).to_s) != "" %>class="<%== _herbst_attribute %>"<% end %>></p>), slim_to_erb(%(p class="\#{{html}}"))
+    assert_equal %(<p class="<%= a %><%== b %>"></p>), slim_to_erb(%(p class="\#{a}\#{{b}}"))
   end
 
   it "wraps class code that isn't an Array literal, since it can return an Array" do
@@ -167,17 +171,9 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     converter = Herbst::Slim::Converter.new
     document = converter.convert(%(.btn(class=x title="a \#{b}" disabled *opts)))
 
-    entries = %([[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "title" => "a \#{b}" }, true], [{ "disabled" => true }, false], [(opts), true]])
+    entries = %([[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "title" => "a \#{CGI.escapeHTML((b).to_s)}" }, false], [{ "disabled" => true }, false], [(opts), true]])
     assert Herbst::Printer.print(document, format: false).start_with?(%(<div <%== #{entries}.then { ))
     assert_empty converter.warnings
-  end
-
-  it "keeps the attributes of a tag with a splat that can't be code" do
-    converter = Herbst::Slim::Converter.new
-    document = converter.convert(%(p title="\#{{html}}" *opts))
-
-    assert Herbst::Printer.print(document, format: false).start_with?(%(<p title="<%== html %>" <%== [[(opts), true]].then { ))
-    assert_equal 1, converter.warnings.size
   end
 
   it "converts an output if without content" do

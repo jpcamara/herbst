@@ -44,6 +44,8 @@ class Herbst::Slim::RenderTest < Minitest::Spec
       p class="#{"active" if user?}"
       p class="#{missing}#{role}"
       p class="#{admin?}"
+      p class="#{{missing}}"
+      p class="#{{extra}}"
       p class="#{missing} "
     SLIM
 
@@ -86,9 +88,12 @@ class Herbst::Slim::RenderTest < Minitest::Spec
       { disabled: true, hidden: false, title: nil }, { title: "", tabindex: 1, role: :button }, { title: %(a"b<c&'), foo_bar: 1 },
       { "aria-label" => "x" }, { data: { id: 1, user_name: "x", c: { e: 1 }, a: nil, b: false, t: true, ids: [1, 2] } },
       { data: "x" }, { aria: { label: "x", hidden: true } }, { class: ["a", nil, "b"] }, { class: :a }, { id: ["a", "b"] },
-      { style: { color: "red" } }, { "class" => "s", class: "t" }, {}
+      { style: { color: "red" } }, { "class" => "s", class: "t" }, { class: "<a&b>" }, { class: "" }, { class: nil }, {}
     ]
-    sources = [%(p *opts), %(a.x#i(class=extra title="t \#{name}" disabled *opts)), %(a href=url data=opts[:data] *opts.except(:data))]
+    sources = [
+      %(p *opts), %(a.x#i(class=extra title="t \#{name}" disabled *opts)), %(a href=url data=opts[:data] *opts.except(:data)),
+      %(p(lang==raw_html dir=="a & \#{raw_html}" *opts)), %(p(lang='say "hi" \\ \#{name}' *opts)), %(p(title="a \#{{name}}" *opts))
+    ]
 
     sources.product(splats).each do |source, opts|
       code = Herbst::Slim.to_erb(source)[/<%== (.*) %>/, 1]

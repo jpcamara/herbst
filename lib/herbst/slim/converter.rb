@@ -23,7 +23,7 @@ module Herbst
 
       # Rails reads strict locals from the template source, where Slim keeps them in a code comment
       # that the parser drops. Like Rails, the locals can continue on the following lines.
-      STRICT_LOCALS = %r{^[ \t]*/(?!!)[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
+      STRICT_LOCALS = %r{^[ \t]*/[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
 
       # @rbs @options: Hash[Symbol, untyped]
 
@@ -343,28 +343,22 @@ module Herbst
         splat = attributes.any? { |attribute| attribute[1] == :splat ? !hash_entries(attribute[2]) : runtime_hash?(attribute) }
         # Slim renders all the attributes of a tag with a splat at runtime, as it does a data or aria
         # Hash that isn't a literal, so they're converted to code.
-        return [erb(attributes_code(attributes.map { |attribute| attribute_entry(attribute) }), opening: "<%==")] if splat && attributes.all? { |attribute| attribute_entry(attribute) }
+        return [erb(attributes_code(attributes.map { |attribute| attribute_entry(attribute) }), opening: "<%==")] if splat
 
         values = Hash.new { |hash, key| hash[key] = [] } #: Hash[String, Array[untyped]]
-        splats = [] #: Array[String]
 
         attributes.each do |attribute|
-          if attribute[1] != :splat
-            values[attribute[2].to_s] << attribute[3]
-          elsif (entries = hash_entries(attribute[2]))
+          if attribute[1] == :splat
             # Slim renders a splat's entries like the tag's own attributes, so a Hash literal is expanded.
-            entries.each { |key, code| values[key] << [:slim, :attrvalue, true, code] }
+            hash_entries(attribute[2])&.each { |key, code| values[key] << [:slim, :attrvalue, true, code] }
           else
-            splats << attribute[2]
+            values[attribute[2].to_s] << attribute[3]
           end
         end
-        warn(nil, "the attributes of `*#{splats.join(" *")}` aren't merged with the tag's, which can't be converted to code") if splats.any?
 
-        nodes = values.keys.sort.flat_map do |name|
+        values.keys.sort.flat_map do |name|
           name == "class" ? convert_class(values.fetch(name)) : convert_attribute(name, values.fetch(name).fetch(-1))
         end
-
-        nodes + splats.map { |code| erb(attributes_code(["[(#{code.strip}), true]"]), opening: "<%==") }
       end
 
       #: (untyped) -> bool
@@ -376,9 +370,9 @@ module Herbst
       end
 
       # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
-      # values. Nil when the attribute can't be written as Ruby.
+      # values.
       #
-      #: (untyped) -> String?
+      #: (untyped) -> String
       def attribute_entry(attribute)
         return "[(#{attribute[2].strip}), true]" if attribute[1] == :splat
 
@@ -388,22 +382,25 @@ module Herbst
           when :static then [value[1].to_s.inspect, false]
           when :multi then ["true", false]
           when :slim then ["(#{value[3].strip})", value[2]]
-          when :escape then [string_code(value[2][2].to_s), value[1]]
+          when :escape then [string_code(value[2][2].to_s, value[1]), false]
+          else unexpected(value)
           end
-        return nil unless code
 
         "[{ #{attribute[2].to_s.inspect} => #{code} }, #{escape}]"
       end
 
-      # Ruby code for a quoted attribute value with interpolation. Nil for an unescaped interpolation,
-      # as in `#{{html}}`, which Slim doesn't escape again.
+      # Ruby code for a quoted attribute value with interpolation, escaped as Slim escapes it: the
+      # static text when the value is escaped, and each interpolation unless it's `#{{...}}`.
       #
-      #: (String) -> String?
-      def string_code(string)
-        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
-        return nil if parts.any? { |part| part[0] != :static && !part[2] }
+      #: (String, bool) -> String
+      def string_code(string, escape)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string])).map do |part|
+          next (escape ? CGI.escapeHTML(part[1].to_s) : part[1].to_s).inspect[1...-1] if part[0] == :static
 
-        "\"#{parts.map { |part| part[0] == :static ? part[1].to_s.inspect[1...-1] : "\#{#{part[3].strip}}" }.join}\""
+          part[2] ? "\#{CGI.escapeHTML((#{part[3].strip}).to_s)}" : "\#{#{part[3].strip}}"
+        end
+
+        "\"#{parts.join}\""
       end
 
       # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
@@ -421,11 +418,11 @@ module Herbst
                 _herbst_value.each { |_herbst_key, _herbst_item| _herbst_add.("\#{_herbst_name}-\#{_herbst_key}", _herbst_item, _herbst_escape, true) }
               elsif _herbst_name == "class"
                 _herbst_value = Array === _herbst_value ? _herbst_value.join(" ") : _herbst_value.to_s
-                _herbst_value = ERB::Util.html_escape(String.new(_herbst_value)) if _herbst_escape
+                _herbst_value = CGI.escapeHTML(_herbst_value) if _herbst_escape
                 _herbst_attributes["class"] = [_herbst_attributes["class"], _herbst_value].compact.join(" ") unless _herbst_value.empty?
               elsif _herbst_nested || !(_herbst_value.nil? || _herbst_value == false)
                 raise "Multiple \#{_herbst_name} attributes specified" if _herbst_attributes.key?(_herbst_name)
-                _herbst_value = ERB::Util.html_escape(String.new(_herbst_value.to_s)) if _herbst_escape && _herbst_value != true
+                _herbst_value = CGI.escapeHTML(_herbst_value.to_s) if _herbst_escape && _herbst_value != true
                 _herbst_attributes[_herbst_name] = _herbst_value == true ? "" : _herbst_value.to_s
               end
             }
@@ -445,8 +442,8 @@ module Herbst
           return optional_attribute("class", class_code(code), escape)
         end
 
-        if values.size == 1 && values.fetch(0)[0] == :escape && (code = interpolation_code(values.fetch(0)[2][2]))
-          return optional_attribute("class", code, values.fetch(0)[1])
+        if values.size == 1 && values.fetch(0)[0] == :escape && (code, escape = interpolation_code(values.fetch(0)[2][2]))
+          return optional_attribute("class", code, escape)
         end
 
         parts = values.filter_map do |value|
@@ -479,18 +476,23 @@ module Herbst
         end
       end
 
-      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
-      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      # Ruby code for a quoted value that is only interpolation, as in `class="#{name}"`, and whether
+      # it's escaped, which it isn't for `#{{name}}`. Slim leaves out a class like this when it renders
+      # empty, and keeps one that has static text.
       #
-      #: (String) -> String?
+      #: (String) -> [String, bool]?
       def interpolation_code(string)
         parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
-        return nil if parts.empty? || parts.any? { |part| part[0] == :static ? !part[1].empty? : !part[2] }
+        return nil if parts.empty? || parts.any? { |part| part[0] == :static && !part[1].empty? }
 
-        codes = parts.reject { |part| part[0] == :static }.map { |part| part[3].strip }
-        return "(#{codes.first}).to_s" if codes.size == 1
+        dynamic = parts.reject { |part| part[0] == :static }
+        escapes = dynamic.map { |part| part[2] }.uniq
+        return nil unless escapes.size == 1
 
-        "\"#{codes.map { |code| "\#{#{code}}" }.join}\""
+        codes = dynamic.map { |part| part[3].strip }
+        return ["(#{codes.first}).to_s", escapes.first] if codes.size == 1
+
+        ["\"#{codes.map { |code| "\#{#{code}}" }.join}\"", escapes.first]
       end
 
       # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
@@ -519,8 +521,6 @@ module Herbst
           !node.unescaped.empty?
         when Prism::InterpolatedStringNode
           node.parts.any? { |part| part.is_a?(Prism::StringNode) && !part.unescaped.empty? }
-        when Prism::IntegerNode, Prism::FloatNode
-          true
         when Prism::ArrayNode
           node.elements.any? { |element| element.is_a?(Prism::StringNode) && !element.unescaped.strip.empty? }
         when Prism::CallNode

@@ -120,16 +120,16 @@ module Herbst
       def runtime_hash?: (untyped) -> bool
 
       # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
-      # values. Nil when the attribute can't be written as Ruby.
+      # values.
       #
-      # : (untyped) -> String?
-      def attribute_entry: (untyped) -> String?
+      # : (untyped) -> String
+      def attribute_entry: (untyped) -> String
 
-      # Ruby code for a quoted attribute value with interpolation. Nil for an unescaped interpolation,
-      # as in `#{{html}}`, which Slim doesn't escape again.
+      # Ruby code for a quoted attribute value with interpolation, escaped as Slim escapes it: the
+      # static text when the value is escaped, and each interpolation unless it's `#{{...}}`.
       #
-      # : (String) -> String?
-      def string_code: (String) -> String?
+      # : (String, bool) -> String
+      def string_code: (String, bool) -> String
 
       # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
       # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
@@ -145,11 +145,12 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def class_value: (untyped) -> Array[Herb::AST::Node]
 
-      # Ruby code for a quoted value that is only escaped interpolation, as in `class="#{name}"`. Slim
-      # leaves out a class like this when it renders empty, and keeps one that has static text.
+      # Ruby code for a quoted value that is only interpolation, as in `class="#{name}"`, and whether
+      # it's escaped, which it isn't for `#{{name}}`. Slim leaves out a class like this when it renders
+      # empty, and keeps one that has static text.
       #
-      # : (String) -> String?
-      def interpolation_code: (String) -> String?
+      # : (String) -> [String, bool]?
+      def interpolation_code: (String) -> [ String, bool ]?
 
       # Slim joins a class that is an Array with spaces, leaving out empty values. Code that isn't an
       # Array literal can return an Array or not, so it's wrapped in one.
