@@ -179,6 +179,11 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   it "converts an output if without content" do
     assert_equal %(<% if true %><% end %>), slim_to_erb("= if true")
   end
+
+  it "keeps an output block without content as output" do
+    assert_equal %(<%= form_for x do |f| %><% end %>), slim_to_erb("= form_for x do |f|")
+    assert_equal %(<%= link_to url,\nremote: true do %><% end %>), slim_to_erb("= link_to url,\n    remote: true do")
+  end
   it "converts comments and doctypes" do
     assert_equal "<!DOCTYPE html>\n<!--visible-->", slim_to_erb("doctype html\n/ hidden\n/! visible")
     assert_equal "<!--[if IE]>\n  <p>ie</p>\n<![endif]-->", slim_to_erb("/[if IE]\n  p ie")
