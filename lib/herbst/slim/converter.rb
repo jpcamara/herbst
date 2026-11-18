@@ -25,6 +25,10 @@ module Herbst
       # that the parser drops. Like Rails, the locals can continue on the following lines.
       STRICT_LOCALS = %r{^[ \t]*/[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
 
+      # Ruby code that escapes a value as Slim's splat builder and escaped interpolation do: a value
+      # that is `html_safe?`, as in Rails, is not escaped again.
+      ESCAPE_HTML_SAFE = "(%1$s.respond_to?(:html_safe?) && %1$s.html_safe? ? %1$s.to_s : CGI.escapeHTML(%1$s.to_s))" #: String
+
       # @rbs @options: Hash[Symbol, untyped]
 
       #: (?Hash[Symbol, untyped]) -> void
@@ -397,7 +401,7 @@ module Herbst
         parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string])).map do |part|
           next (escape ? CGI.escapeHTML(part[1].to_s) : part[1].to_s).inspect[1...-1] if part[0] == :static
 
-          part[2] ? "\#{CGI.escapeHTML((#{part[3].strip}).to_s)}" : "\#{#{part[3].strip}}"
+          part[2] ? "\#{(#{part[3].strip}).then { |_herbst_part| #{ESCAPE_HTML_SAFE % "_herbst_part"} }}" : "\#{#{part[3].strip}}"
         end
 
         "\"#{parts.join}\""
@@ -418,11 +422,11 @@ module Herbst
                 _herbst_value.each { |_herbst_key, _herbst_item| _herbst_add.("\#{_herbst_name}-\#{_herbst_key}", _herbst_item, _herbst_escape, true) }
               elsif _herbst_name == "class"
                 _herbst_value = Array === _herbst_value ? _herbst_value.join(" ") : _herbst_value.to_s
-                _herbst_value = CGI.escapeHTML(_herbst_value) if _herbst_escape
+                _herbst_value = #{ESCAPE_HTML_SAFE % "_herbst_value"} if _herbst_escape
                 _herbst_attributes["class"] = [_herbst_attributes["class"], _herbst_value].compact.join(" ") unless _herbst_value.empty?
               elsif _herbst_nested || !(_herbst_value.nil? || _herbst_value == false)
                 raise "Multiple \#{_herbst_name} attributes specified" if _herbst_attributes.key?(_herbst_name)
-                _herbst_value = CGI.escapeHTML(_herbst_value.to_s) if _herbst_escape && _herbst_value != true
+                _herbst_value = #{ESCAPE_HTML_SAFE % "_herbst_value"} if _herbst_escape && _herbst_value != true
                 _herbst_attributes[_herbst_name] = _herbst_value == true ? "" : _herbst_value.to_s
               end
             }

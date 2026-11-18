@@ -20,6 +20,10 @@ module Herbst
       # that the parser drops. Like Rails, the locals can continue on the following lines.
       STRICT_LOCALS: Regexp
 
+      # Ruby code that escapes a value as Slim's splat builder and escaped interpolation do: a value
+      # that is `html_safe?`, as in Rails, is not escaped again.
+      ESCAPE_HTML_SAFE: String
+
       @options: Hash[Symbol, untyped]
 
       # : (?Hash[Symbol, untyped]) -> void

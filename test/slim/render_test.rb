@@ -110,6 +110,30 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     end
   end
 
+  it "does not escape html_safe values again in a tag with a splat, like Slim with use_html_safe" do
+    string = lambda do |value, html_safe|
+      Class.new(String) do
+        define_method(:html_safe?) { html_safe }
+        define_method(:to_s) { self }
+      end.new(value)
+    end
+    safe = string.call("a &amp; &quot;b&quot;", true)
+    unsafe = string.call("c & <d>", false)
+    opts = { title: safe, class: safe, data: { name: safe }, lang: unsafe }
+    sources = [%(p *opts), %(p(dir="\#{safe}\#{unsafe}" *opts))]
+
+    sources.each do |source|
+      code = Herbst::Slim.to_erb(source)[/<%== (.*) %>/, 1]
+      scope = Scope.new.instance_eval { binding }
+      locals = { opts: opts, safe: safe, unsafe: unsafe }
+      locals.each { |name, value| scope.local_variable_set(name, value) }
+      expected = Slim::Template.new(format: :xhtml, use_html_safe: true) { source }.render(Scope.new, locals)
+
+      assert_nil expected["&amp;amp;"]
+      assert_equal expected, %(<p #{scope.eval(code)}></p>), source
+    end
+  end
+
   it "raises for a duplicate attribute of a tag with a splat like Slim" do
     code = Herbst::Slim.to_erb(%(p title="a" *opts))[/<%== (.*) %>/, 1]
     scope = Scope.new.instance_eval { binding }.tap { |binding| binding.local_variable_set(:opts, { title: "b" }) }

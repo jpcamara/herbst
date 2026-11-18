@@ -171,7 +171,7 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     converter = Herbst::Slim::Converter.new
     document = converter.convert(%(.btn(class=x title="a \#{b}" disabled *opts)))
 
-    entries = %([[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "title" => "a \#{CGI.escapeHTML((b).to_s)}" }, false], [{ "disabled" => true }, false], [(opts), true]])
+    entries = %([[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "title" => "a \#{(b).then { |_herbst_part| (_herbst_part.respond_to?(:html_safe?) && _herbst_part.html_safe? ? _herbst_part.to_s : CGI.escapeHTML(_herbst_part.to_s)) }}" }, false], [{ "disabled" => true }, false], [(opts), true]])
     assert Herbst::Printer.print(document, format: false).start_with?(%(<div <%== #{entries}.then { ))
     assert_empty converter.warnings
   end
@@ -179,7 +179,6 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   it "converts an output if without content" do
     assert_equal %(<% if true %><% end %>), slim_to_erb("= if true")
   end
-
   it "converts comments and doctypes" do
     assert_equal "<!DOCTYPE html>\n<!--visible-->", slim_to_erb("doctype html\n/ hidden\n/! visible")
     assert_equal "<!--[if IE]>\n  <p>ie</p>\n<![endif]-->", slim_to_erb("/[if IE]\n  p ie")
