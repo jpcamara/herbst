@@ -76,6 +76,10 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb("- case x\n  - when 1\n    | one\n  - else\n    | other")
   end
 
+  it "converts a when on the case line, with the lines under it as its body" do
+    assert_equal "<% case x %><% when 1 %>one<% when 2 %>two<% end %>", slim_to_erb("- case x when 1\n  | one\n- when 2\n  | two")
+  end
+
   it "closes block statements without a body, as Slim does" do
     assert_equal "<% if a then b else c %><% end %>", slim_to_erb("- if a then b else c")
   end
