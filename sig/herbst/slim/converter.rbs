@@ -7,6 +7,10 @@ module Herbst
 
       HYPHEN_ATTRIBUTES: Array[String]
 
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops. Like Rails, the locals can continue on the following lines.
+      STRICT_LOCALS: Regexp
+
       @declared: Array[Symbol]
 
       @options: Hash[Symbol, untyped]

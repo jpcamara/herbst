@@ -13,6 +13,10 @@ module Herbst
 
       HYPHEN_ATTRIBUTES = ["data", "aria"].freeze #: Array[String]
 
+      # Rails reads strict locals from the template source, where Slim keeps them in a code comment
+      # that the parser drops. Like Rails, the locals can continue on the following lines.
+      STRICT_LOCALS = %r{^[ \t]*/[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
+
       # @rbs @options: Hash[Symbol, untyped]
       # @rbs @declared: Array[Symbol]
 
@@ -33,6 +37,8 @@ module Herbst
         expression = parser.call(source)
         parser.dropped_directives.each { |line, directive| warn_dropped_directive(line, directive) }
         children = join(prepare([expression]), 0)
+        strict_locals = source[STRICT_LOCALS, 1]
+        children.unshift(erb_comment(strict_locals), text("\n")) if strict_locals
 
         finish(document(children))
       rescue ::Slim::Parser::SyntaxError => e
