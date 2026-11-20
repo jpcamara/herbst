@@ -28,6 +28,10 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<%# locals: (name:) %>", slim_to_erb("-# locals: (name:)")
   end
 
+  it "ignores a byte order mark, like Slim" do
+    assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
+  end
+
   it "converts tags with text" do
     assert_equal "<p>Hello</p>", slim_to_erb("p Hello")
   end
