@@ -28,6 +28,7 @@ module Herbst
 
       #: (String) -> Herb::AST::DocumentNode
       def convert(source)
+        source = Temple::Filters::RemoveBOM.new.call(source)
         @declared = declared_names(source)
         parser = Parser.new(@options)
         expression = parser.call(source)
