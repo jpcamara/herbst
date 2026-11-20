@@ -32,6 +32,8 @@ module Herbst
         expression = parser.call(source)
         parser.dropped_directives.each { |line, directive| warn_dropped_directive(line, directive) }
         children = join(prepare([expression]), 0)
+        strict_locals = parser.strict_locals
+        children.unshift(erb_comment(strict_locals), text("\n")) if strict_locals
 
         finish(document(children))
       rescue ::Slim::Parser::SyntaxError => e
