@@ -238,7 +238,12 @@ module Herbst
         opening = escape ? "<%=" : "<%=="
         children = body(content, depth)
 
-        return [*comment_nodes(comment), erb(code, opening: opening)] if children.empty? && !opens_block?(code)
+        if children.empty? && !opens_block?(code)
+          # Slim closes `= if` with an `end` even without content, and the `if` returns nil.
+          return convert_control(item[3], content, [], depth) if code.match?(::Slim::EndInserter::IF_RE)
+
+          return [*comment_nodes(comment), erb(code, opening: opening)]
+        end
 
         [*comment_nodes(comment), erb_block(block_code(code), children, opening: opening)]
       end
