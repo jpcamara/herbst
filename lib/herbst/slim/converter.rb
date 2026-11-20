@@ -453,7 +453,8 @@ module Herbst
 
         return ["[#{code}].join(\" \")", nil, opening] if builder
 
-        list = code.strip.start_with?("[") ? code : "[#{code}]"
+        # Code that isn't an Array literal can return an Array or not, so it's wrapped in one.
+        list = Prism.parse(code).value.statements.body.first.is_a?(Prism::ArrayNode) ? code : "[#{code}]"
 
         ["#{list}.flatten.map(&:to_s).reject(&:empty?).join(\" \")", nil, opening]
       end
