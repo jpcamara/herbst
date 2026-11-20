@@ -26,6 +26,8 @@ module Herbst
 
       #: (String) -> Herb::AST::DocumentNode
       def convert(source)
+        # Slim ignores a byte order mark at the start of a template.
+        source = source.delete_prefix("\uFEFF")
         @declared = declared_names(source)
         parser = Parser.new(@options)
         expression = parser.call(source)
