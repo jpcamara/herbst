@@ -35,6 +35,11 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<%# locals: (path:,\n  network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:,\n  network: nil)\np = path")
   end
 
+  it "puts nothing between case and the first when, since Erubi can't compile it" do
+    slim = "tr\n  - if a\n    th x\n  - case k\n  - when 1\n    td one\n  - when 2\n    td two"
+    assert_match "<% case k %><% when 1 %>\n", slim_to_erb(slim)
+  end
+
   it "ignores a byte order mark, like Slim" do
     assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
   end
