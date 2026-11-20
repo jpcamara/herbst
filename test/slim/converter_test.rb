@@ -35,6 +35,10 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<%# locals: (path:,\n  network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:,\n  network: nil)\np = path")
   end
 
+  it "converts a when on the case line, with the lines under it as its body" do
+    assert_equal "<% case x %><% when 1 %>one<% when 2 %>two<% end %>", slim_to_erb("- case x when 1\n  | one\n- when 2\n  | two")
+  end
+
   it "puts nothing between case and the first when, since Erubi can't compile it" do
     slim = "tr\n  - if a\n    th x\n  - case k\n  - when 1\n    td one\n  - when 2\n    td two"
     assert_match "<% case k %><% when 1 %>\n", slim_to_erb(slim)
