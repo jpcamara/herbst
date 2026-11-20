@@ -167,10 +167,6 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_includes slim_to_erb("p class=@a class==@b"), %(#{merged} class="<%= _herbst_attribute %>")
   end
 
-  it "joins classes like Slim's splat builder when a tag has a splat" do
-    assert_includes slim_to_erb("p *a class=@v"), %(<% unless (_herbst_attribute = [@v].join(" ")).empty? %>)
-  end
-
   it "falls back to tag.attributes for data hashes it cannot read" do
     converter = Herbst::Slim::Converter.new
 
@@ -182,12 +178,12 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     ], converter.warnings
   end
 
-  it "falls back to tag.attributes for splats" do
+  it "converts the attributes of a tag with a splat to code" do
     converter = Herbst::Slim::Converter.new
-    document = converter.convert("p *attrs")
+    erb = Herbst::Printer.print(converter.convert(%(.btn(class=x disabled *opts))), format: false)
 
-    assert_equal %(<p <%= tag.attributes(**attrs) %>></p>), Herbst::Printer.print(document, format: false)
-    assert_equal 1, converter.warnings.size
+    assert erb.start_with?(%(<div <%== [[{ "class" => "btn" }, false], [{ "class" => (x) }, true], [{ "disabled" => true }, false], [(opts), true]].then { )), erb
+    assert_empty converter.warnings
   end
 
   it "converts an output if without content" do

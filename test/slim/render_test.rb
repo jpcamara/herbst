@@ -30,6 +30,16 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     def shift_value = values.shift
   end
 
+  class HtmlString < String
+    def initialize(value, html_safe:)
+      super(value)
+      @html_safe = html_safe
+    end
+
+    def html_safe? = @html_safe
+    def to_s = self
+  end
+
   it "renders page.slim like Slim" do
     source = File.read(File.join(SLIM_FIXTURES, "page.slim"))
 
@@ -125,6 +135,51 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     end
   end
 
+  it "renders the attributes of a tag with a splat like Slim" do
+    splats = [
+      { disabled: true, hidden: false, title: nil }, { title: "", tabindex: 1, role: :button }, { title: %(a"b<c&'), foo_bar: 1 },
+      { "aria-label" => "x" }, { data: { id: 1, user_name: "x", c: { e: 1 }, a: nil, b: false, t: true, ids: [1, 2] } },
+      { data: "x" }, { aria: { label: "x", hidden: true } }, { class: ["a", nil, "b"] }, { class: :a }, { id: ["a", "b"] },
+      { style: { color: "red" } }, { "class" => "s", class: "t" }, { class: "<a&b>" }, { class: "" }, { class: nil }, {}
+    ]
+    sources = [
+      %(p *opts), %(a.x#i(class=extra title="t \#{name}" disabled *opts)), %(a href=url data=opts[:data] *opts.except(:data)),
+      %(p(lang==raw_html dir=="a & \#{raw_html}" *opts)), %(p(lang='say "hi" \\ \#{name}' *opts)), %(p(title="a \#{{name}}" *opts))
+    ]
+
+    sources.product(splats).each { |source, opts| assert_splat_renders_like_slim(source, opts: opts) }
+  end
+
+  it "does not escape html_safe values again in a tag with a splat, like Slim with use_html_safe" do
+    safe = HtmlString.new("a &amp; &quot;b&quot;", html_safe: true)
+    unsafe = HtmlString.new("c & <d>", html_safe: false)
+    opts = { title: safe, class: safe, data: { name: safe }, lang: unsafe }
+
+    [%(p *opts), %(p(dir="\#{safe}\#{unsafe}" *opts))].each do |source|
+      assert_splat_renders_like_slim(source, use_html_safe: true, opts: opts, safe: safe, unsafe: unsafe)
+    end
+    refute_includes render_erb(%(p *opts), opts: opts), "&amp;amp;"
+  end
+
+  it "raises for a duplicate attribute of a tag with a splat like Slim" do
+    error = assert_raises(RuntimeError) { render_erb(%(p title="a" *opts), opts: { title: "b" }) }
+
+    assert_equal "Multiple title attributes specified", error.message
+  end
+
+  it "merges the class of a splat that is a Hash literal like Slim" do
+    source = <<~SLIM
+      .cute *{class: "nice"} A
+      a.x class=role *{class: ["y"], title: name} B
+    SLIM
+
+    expected = Slim::Template.new(format: :html) { source }.render(Scope.new)
+    actual = Scope.new.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+
+    assert_equal %(<div class="cute nice">A</div><a class="x a y" title="&lt;World&gt;">B</a>), expected
+    assert_equal expected, actual.force_encoding(Encoding::UTF_8).delete("\n")
+  end
+
   private
 
   def assert_renders_like_slim(source, value)
@@ -132,6 +187,28 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     actual = ValueScope.new(value).instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
 
     assert_equal expected, actual.force_encoding(Encoding::UTF_8)
+  end
+
+  # slim-rails renders with Slim's default format, xhtml, where a splat's `true` value renders as `name=""`.
+  # A splat that adds no attributes leaves the space before the ERB tag, as in `<p >`, which is the same element.
+  def assert_splat_renders_like_slim(source, use_html_safe: false, **locals)
+    template = Slim::Template.new(format: :xhtml, use_html_safe: use_html_safe) { source }
+    begin
+      expected = template.render(locals_scope(**locals))
+    rescue RuntimeError => e
+      error = assert_raises(RuntimeError) { render_erb(source, **locals) }
+      return assert_equal(e.message, error.message, "#{source} with #{locals}")
+    end
+
+    assert_equal expected, render_erb(source, **locals).sub(/\A<\w+\K >/, ">"), "#{source} with #{locals}"
+  end
+
+  def render_erb(source, **locals)
+    locals_scope(**locals).instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src).force_encoding(Encoding::UTF_8)
+  end
+
+  def locals_scope(**locals)
+    Scope.new.tap { |scope| locals.each { |name, value| scope.define_singleton_method(name) { value } } }
   end
 
   def without_block_whitespace(html)

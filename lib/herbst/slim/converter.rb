@@ -17,6 +17,10 @@ module Herbst
       # that the parser drops. Like Rails, the locals can continue on the following lines.
       STRICT_LOCALS = %r{^[ \t]*/[ \t]*#[ \t]+(locals:[ \t]+\(.*?\))[ \t]*$}m #: Regexp
 
+      # Ruby code that escapes a value as Slim's splat builder and escaped interpolation do: a value
+      # that is `html_safe?`, as in Rails, is not escaped again.
+      ESCAPE_HTML_SAFE = "(%1$s.respond_to?(:html_safe?) && %1$s.html_safe? ? %1$s.to_s : CGI.escapeHTML(%1$s.to_s))" #: String
+
       # @rbs @options: Hash[Symbol, untyped]
       # @rbs @declared: Array[Symbol]
 
@@ -349,26 +353,80 @@ module Herbst
       #: (untyped) -> Array[Herb::AST::Node]
       def convert_attributes(expression)
         values = Hash.new { |hash, key| hash[key] = [] } #: Hash[String, Array[untyped]]
-        splats = [] #: Array[String]
         attributes = expression.drop(2)
-        builder = attributes.any? { |attribute| attribute[1] == :splat || (HYPHEN_ATTRIBUTES.include?(attribute[2].to_s) && attribute[3][0] == :slim) }
+        # Slim renders all the attributes of a tag with a splat at runtime, so they're converted to code.
+        return [erb(attributes_code(attributes.map { |attribute| attribute_entry(attribute) }), opening: "<%==")] if attributes.any? { |attribute| attribute[1] == :splat }
 
-        attributes.each do |attribute|
-          if attribute[1] == :splat
-            splats << attribute[2]
-          else
-            collect_attribute(values, attribute[2].to_s, attribute[3])
-          end
-        end
+        builder = attributes.any? { |attribute| HYPHEN_ATTRIBUTES.include?(attribute[2].to_s) && attribute[3][0] == :slim }
 
-        nodes = values.keys.sort.flat_map do |name|
+        attributes.each { |attribute| collect_attribute(values, attribute[2].to_s, attribute[3]) }
+
+        values.keys.sort.flat_map do |name|
           name == "class" ? convert_class(values.fetch(name), builder) : convert_attribute(name, values.fetch(name).fetch(-1))
         end
+      end
 
-        nodes + splats.map do |code|
-          warn(nil, "`*#{code}` was converted to `tag.attributes`, which requires Rails 7.1+")
-          erb("tag.attributes(**#{code})")
+      # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
+      # values.
+      #
+      #: (untyped) -> String
+      def attribute_entry(attribute)
+        return "[(#{attribute[2].strip}), true]" if attribute[1] == :splat
+
+        value = attribute[3]
+        code, escape =
+          case value[0]
+          when :static then [value[1].to_s.inspect, false]
+          when :multi then ["true", false]
+          when :slim then ["(#{value[3].strip})", value[2]]
+          when :escape then [string_code(value[2][2].to_s, value[1]), false]
+          else unexpected(value)
+          end
+
+        "[{ #{attribute[2].to_s.inspect} => #{code} }, #{escape}]"
+      end
+
+      # Ruby code for a quoted attribute value with interpolation, escaped as Slim escapes it: the
+      # static text when the value is escaped, and each interpolation unless it's `#{{...}}`.
+      #
+      #: (String, bool) -> String
+      def string_code(string, escape)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string])).map do |part|
+          next (escape ? CGI.escapeHTML(part[1].to_s) : part[1].to_s).inspect[1...-1] if part[0] == :static
+
+          part[2] ? "\#{(#{part[3].strip}).then { |_herbst_part| #{ESCAPE_HTML_SAFE % "_herbst_part"} }}" : "\#{#{part[3].strip}}"
         end
+
+        "\"#{parts.join}\""
+      end
+
+      # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
+      # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
+      # an empty value, `false` and `nil` leave an attribute out, and a duplicate raises. All the code
+      # from the template is evaluated first, so the names in the blocks don't hide its locals.
+      #
+      #: (Array[String]) -> String
+      def attributes_code(entries)
+        <<~RUBY.strip.gsub(/\n\s*/, "; ")
+          [#{entries.join(", ")}].then { |_herbst_entries|
+            _herbst_attributes = {}
+            _herbst_add = lambda { |_herbst_name, _herbst_value, _herbst_escape, _herbst_nested|
+              if Hash === _herbst_value && (_herbst_nested || _herbst_name == "data" || _herbst_name == "aria")
+                _herbst_value.each { |_herbst_key, _herbst_item| _herbst_add.("\#{_herbst_name}-\#{_herbst_key}", _herbst_item, _herbst_escape, true) }
+              elsif _herbst_name == "class"
+                _herbst_value = Array === _herbst_value ? _herbst_value.join(" ") : _herbst_value.to_s
+                _herbst_value = #{ESCAPE_HTML_SAFE % "_herbst_value"} if _herbst_escape
+                _herbst_attributes["class"] = [_herbst_attributes["class"], _herbst_value].compact.join(" ") unless _herbst_value.empty?
+              elsif _herbst_nested || !(_herbst_value.nil? || _herbst_value == false)
+                raise "Multiple \#{_herbst_name} attributes specified" if _herbst_attributes.key?(_herbst_name)
+                _herbst_value = #{ESCAPE_HTML_SAFE % "_herbst_value"} if _herbst_escape && _herbst_value != true
+                _herbst_attributes[_herbst_name] = _herbst_value == true ? "" : _herbst_value.to_s
+              end
+            }
+            _herbst_entries.each { |_herbst_hash, _herbst_escape| _herbst_hash.to_h.each { |_herbst_name, _herbst_value| _herbst_add.(_herbst_name.to_s, _herbst_value, _herbst_escape, false) } }
+            _herbst_attributes.sort.map { |_herbst_name, _herbst_value| %(\#{_herbst_name}="\#{_herbst_value}") }.join(" ")
+          }
+        RUBY
       end
 
       #: (Hash[String, Array[untyped]], String, untyped) -> void

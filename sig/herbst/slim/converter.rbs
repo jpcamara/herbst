@@ -11,6 +11,10 @@ module Herbst
       # that the parser drops. Like Rails, the locals can continue on the following lines.
       STRICT_LOCALS: Regexp
 
+      # Ruby code that escapes a value as Slim's splat builder and escaped interpolation do: a value
+      # that is `html_safe?`, as in Rails, is not escaped again.
+      ESCAPE_HTML_SAFE: String
+
       @declared: Array[Symbol]
 
       @options: Hash[Symbol, untyped]
@@ -114,6 +118,26 @@ module Herbst
 
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
+
+      # Ruby code for an attribute, or a splat, as a Hash of attributes and whether to escape their
+      # values.
+      #
+      # : (untyped) -> String
+      def attribute_entry: (untyped) -> String
+
+      # Ruby code for a quoted attribute value with interpolation, escaped as Slim escapes it: the
+      # static text when the value is escaped, and each interpolation unless it's `#{{...}}`.
+      #
+      # : (String, bool) -> String
+      def string_code: (String, bool) -> String
+
+      # Ruby code that renders attributes as Slim does when a tag has a splat. The attributes are
+      # sorted, classes are merged, data and aria hashes become hyphenated attributes, `true` renders as
+      # an empty value, `false` and `nil` leave an attribute out, and a duplicate raises. All the code
+      # from the template is evaluated first, so the names in the blocks don't hide its locals.
+      #
+      # : (Array[String]) -> String
+      def attributes_code: (Array[String]) -> String
 
       # : (Hash[String, Array[untyped]], String, untyped) -> void
       def collect_attribute: (Hash[String, Array[untyped]], String, untyped) -> void
