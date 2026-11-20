@@ -28,6 +28,14 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<%# locals: (name:) %>", slim_to_erb("-# locals: (name:)")
   end
 
+  it "keeps strict locals, which Rails reads from the template source" do
+    assert_equal "<%# locals: (path:, network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:, network: nil)\np = path")
+    assert_equal "<p>x</p>", slim_to_erb("/ locals are documented elsewhere\np x")
+    assert_equal "<!--# locals: (path:)-->", slim_to_erb("/!# locals: (path:)")
+    assert_equal "<script>/# locals: (path:)</script>", slim_to_erb("javascript:\n  /# locals: (path:)")
+    assert_equal "<%# locals: (path:,\n  network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:,\n  network: nil)\np = path")
+  end
+
   it "ignores a byte order mark, like Slim" do
     assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
   end
@@ -124,6 +132,7 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   it "repeats only names declared as state or locals" do
     assert_equal %(<%# herb:state (a: 0) %>\n<p<% if a == true %> title<% elsif a %> title="<%= a %>"<% end %>></p>), slim_to_erb("-# herb:state (a: 0)\np title=a")
     assert_equal %(<%# locals: (a:) %>\n<p<% if a == true %> title<% elsif a %> title="<%= a %>"<% end %>></p>), slim_to_erb("-# locals: (a:)\np title=a")
+    assert_equal %(<%# locals: (a:) %>\n<p<% if a == true %> title<% elsif a %> title="<%= a %>"<% end %>></p>), slim_to_erb("/# locals: (a:)\np title=a")
   end
 
   it "evaluates attribute code that cannot be repeated once" do
