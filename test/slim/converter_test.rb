@@ -84,6 +84,15 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<% if a then b else c %><% end %>", slim_to_erb("- if a then b else c")
   end
 
+  it "closes an output if without a body, as Slim does" do
+    assert_equal %(<% if true %><% end %>), slim_to_erb("= if true")
+  end
+
+  it "keeps an output block without a body as output" do
+    assert_equal %(<%= form_for x do |f| %><% end %>), slim_to_erb("= form_for x do |f|")
+    assert_equal %(<%= link_to url,\nremote: true do %><% end %>), slim_to_erb("= link_to url,\n    remote: true do")
+  end
+
   it "moves trailing Ruby comments into ERB comments" do
     assert_equal "<%# note %><% x = 1 %><% if x %>\n  <p>a</p>\n<% end %>", slim_to_erb("- x = 1 # note\n- if x\n  p a")
     assert_equal "<p><%# note %><%= x %></p>", slim_to_erb("p = x # note")
