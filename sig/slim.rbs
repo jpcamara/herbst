@@ -8,11 +8,17 @@ module Slim
 
     @lineno: Integer
 
+    @lines: Array[String]
+
+    @indents: Array[Integer]
+
     def initialize: (?Hash[Symbol, untyped] options) -> void
 
     def call: (String template) -> untyped
 
     def parse_comment_block: () -> void
+
+    def get_indent: (String line) -> Integer
 
     class SyntaxError < StandardError
     end

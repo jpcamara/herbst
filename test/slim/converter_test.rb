@@ -28,6 +28,18 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<%# locals: (name:) %>", slim_to_erb("-# locals: (name:)")
   end
 
+  it "keeps strict locals, which Rails reads from the template source" do
+    assert_equal "<%# locals: (path:, network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:, network: nil)\np = path")
+    assert_equal "<p>x</p>", slim_to_erb("/ locals are documented elsewhere\np x")
+    assert_equal "<!--# locals: (path:)-->", slim_to_erb("/!# locals: (path:)")
+    assert_equal "<script>/# locals: (path:)</script>", slim_to_erb("javascript:\n  /# locals: (path:)")
+    assert_equal "<%# locals: (path:,\n  network: nil) %>\n<p><%= path %></p>", slim_to_erb("/# locals: (path:,\n  network: nil)\np = path")
+  end
+
+  it "ignores a byte order mark, like Slim" do
+    assert_equal "<h1>Hello</h1>", slim_to_erb("\uFEFFh1 Hello")
+  end
+
   it "converts tags with text" do
     assert_equal "<p>Hello</p>", slim_to_erb("p Hello")
   end
@@ -64,8 +76,21 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb("- case x\n  - when 1\n    | one\n  - else\n    | other")
   end
 
+  it "converts a when on the case line, with the lines under it as its body" do
+    assert_equal "<% case x %><% when 1 %>one<% when 2 %>two<% end %>", slim_to_erb("- case x when 1\n  | one\n- when 2\n  | two")
+  end
+
   it "closes block statements without a body, as Slim does" do
     assert_equal "<% if a then b else c %><% end %>", slim_to_erb("- if a then b else c")
+  end
+
+  it "closes an output if without a body, as Slim does" do
+    assert_equal %(<% if true %><% end %>), slim_to_erb("= if true")
+  end
+
+  it "keeps an output block without a body as output" do
+    assert_equal %(<%= form_for x do |f| %><% end %>), slim_to_erb("= form_for x do |f|")
+    assert_equal %(<%= link_to url,\nremote: true do %><% end %>), slim_to_erb("= link_to url,\n    remote: true do")
   end
 
   it "moves trailing Ruby comments into ERB comments" do
@@ -82,6 +107,11 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
   it "converts case / when" do
     slim = "- case x\n- when 1\n  | one\n- else\n  | other"
     assert_equal "<% case x %><% when 1 %>one<% else %>other<% end %>", slim_to_erb(slim)
+  end
+
+  it "puts nothing between case and the first when, since Erubi can't compile it" do
+    slim = "tr\n  - if a\n    th x\n  - case k\n  - when 1\n    td one\n  - when 2\n    td two"
+    assert_match "<% case k %><% when 1 %>\n", slim_to_erb(slim)
   end
 
   it "converts blocks and adds the do Slim adds" do
@@ -147,10 +177,6 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     assert_includes slim_to_erb("p class=@a class==@b"), %(#{merged} class="<%= _herbst_attribute %>")
   end
 
-  it "joins classes like Slim's splat builder when a tag has a splat" do
-    assert_includes slim_to_erb("p *a class=@v"), %(<% unless (_herbst_attribute = [@v].join(" ")).empty? %>)
-  end
-
   it "falls back to tag.attributes for data hashes it cannot read" do
     converter = Herbst::Slim::Converter.new
 
@@ -162,12 +188,13 @@ class Herbst::Slim::ConverterTest < Minitest::Spec
     ], converter.warnings
   end
 
-  it "falls back to tag.attributes for splats" do
+  it "renders the splats and classes of a tag with a splat at runtime and converts its other attributes" do
     converter = Herbst::Slim::Converter.new
-    document = converter.convert("p *attrs")
+    erb = Herbst::Printer.print(converter.convert(".a title=@t *opts"), format: false)
+    title = %(<% if @t == true %> title<% elsif @t %> title="<%= @t %>"<% end %>)
 
-    assert_equal %(<p <%= tag.attributes(**attrs) %>></p>), Herbst::Printer.print(document, format: false)
-    assert_equal 1, converter.warnings.size
+    assert erb.start_with?(%(<div#{title} <%== \(require "erb"; [[{ "class" => "a" }, false], [(opts), true]].then { )), erb
+    assert_empty converter.warnings
   end
 
   it "converts comments and doctypes" do

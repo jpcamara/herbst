@@ -4,6 +4,7 @@ source "https://rubygems.org"
 
 gemspec
 
+gem "activesupport", require: false
 gem "haml", require: false
 gem "irb"
 gem "minitest", "~> 5.16"
