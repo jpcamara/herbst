@@ -114,6 +114,20 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
 
+      # Ruby code for a splat, or a class of a tag with a splat, as a Hash of attributes and whether to
+      # escape its values.
+      #
+      # : (untyped) -> String
+      def splat_entry: (untyped) -> String
+
+      # Ruby code that renders the splats and classes of a tag like Slim's splat builder: classes are
+      # merged, data and aria hashes become hyphenated attributes, `true` renders a bare attribute, and
+      # `nil` and `false` leave an attribute out. Like Slim, it raises for an attribute the splats
+      # repeat. An attribute of the tag that a splat repeats renders twice, where Slim raises.
+      #
+      # : (Array[String]) -> String
+      def splat_code: (Array[String]) -> String
+
       # : (Hash[String, Array[untyped]], String, untyped) -> void
       def collect_attribute: (Hash[String, Array[untyped]], String, untyped) -> void
 
@@ -137,6 +151,12 @@ module Herbst
 
       # : (String) -> String
       def interpolated_source: (String) -> String
+
+      # Ruby code for a quoted attribute value, escaped like Slim escapes it: the static text when the
+      # value is escaped, and each interpolation unless it's `#{{...}}`.
+      #
+      # : (String, bool) -> String
+      def interpolated_code: (String, bool) -> String
 
       # : (String, String, bool) -> class_part?
       def code_class_part: (String, String, bool) -> class_part?
