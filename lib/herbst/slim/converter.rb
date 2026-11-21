@@ -361,26 +361,69 @@ module Herbst
       #: (untyped) -> Array[Herb::AST::Node]
       def convert_attributes(expression)
         values = Hash.new { |hash, key| hash[key] = [] } #: Hash[String, Array[untyped]]
-        splats = [] #: Array[String]
         attributes = expression.drop(2)
-        builder = attributes.any? { |attribute| attribute[1] == :splat || (HYPHEN_ATTRIBUTES.include?(attribute[2].to_s) && attribute[3][0] == :slim) }
+        splat = attributes.any? { |attribute| attribute[1] == :splat }
+        # Slim merges the class of a splat into the class of the tag, so a tag with a splat renders its
+        # splats and classes at runtime.
+        runtime, attributes = attributes.partition { |attribute| splat && (attribute[1] == :splat || attribute[2].to_s == "class") }
+        builder = attributes.any? { |attribute| HYPHEN_ATTRIBUTES.include?(attribute[2].to_s) && attribute[3][0] == :slim }
 
-        attributes.each do |attribute|
-          if attribute[1] == :splat
-            splats << attribute[2]
-          else
-            collect_attribute(values, attribute[2].to_s, attribute[3])
-          end
-        end
+        attributes.each { |attribute| collect_attribute(values, attribute[2].to_s, attribute[3]) }
 
         nodes = values.keys.sort.flat_map do |name|
           name == "class" ? convert_class(values.fetch(name), builder) : convert_attribute(name, values.fetch(name).fetch(-1))
         end
 
-        nodes + splats.map do |code|
-          warn(nil, "`*#{code}` was converted to `tag.attributes`, which requires Rails 7.1+")
-          erb("tag.attributes(**#{code})")
-        end
+        runtime.empty? ? nodes : nodes + [erb(splat_code(runtime.map { |attribute| splat_entry(attribute) }), opening: "<%==")]
+      end
+
+      #: (untyped) -> String
+      def splat_entry(attribute)
+        return "[(#{attribute[2].strip}), true]" if attribute[1] == :splat
+
+        value = attribute[3]
+        code, escape =
+          case value[0]
+          when :static
+            [value[1].to_s.inspect, false]
+          when :multi
+            ["true", false]
+          when :slim
+            ["(#{value[3].strip})", value[2]]
+          when :escape
+            [interpolated_code(value[2][2].to_s, value[1]), false]
+          else
+            unexpected(value)
+          end
+
+        "[{ \"class\" => #{code} }, #{escape}]"
+      end
+
+      # Ruby code that renders the splats and classes of a tag the way Slim's splat builder does. It
+      # raises when two splats set the same attribute, like Slim. When a splat repeats an attribute
+      # written on the tag, Slim raises too; here the attribute renders twice.
+      #
+      #: (Array[String]) -> String
+      def splat_code(entries)
+        <<~RUBY.gsub(/\n\s*/, " ").strip
+          (require "erb"; [#{entries.join(", ")}].then { |entries|
+            _herbst_attributes = {};
+            _herbst_add = ->(name, value, escape, nested) {
+              if value.is_a?(Hash) && (nested || name == "data" || name == "aria") then
+                value.each { |key, item| _herbst_add.call("\#{name}-\#{key}", item, escape, true) }
+              elsif name == "class" then
+                value = value.is_a?(Array) ? value.join(" ") : value.to_s;
+                value = ERB::Util.html_escape(value) if escape;
+                _herbst_attributes["class"] = [_herbst_attributes["class"], value].compact.join(" ") unless value.empty?
+              elsif nested || !(value.nil? || value == false) then
+                raise "Multiple \#{name} attributes specified" if _herbst_attributes.key?(name);
+                _herbst_attributes[name] = value == true || !escape ? value : ERB::Util.html_escape(value)
+              end
+            };
+            entries.each { |hash, escape| hash.to_h.each { |name, value| _herbst_add.call(name.to_s, value, escape, false) } };
+            _herbst_attributes.sort.map { |name, value| value == true ? name : %(\#{name}="\#{value}") }.join(" ")
+          })
+        RUBY
       end
 
       #: (Hash[String, Array[untyped]], String, untyped) -> void
@@ -460,6 +503,20 @@ module Herbst
         parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string]))
 
         "\"#{parts.map { |part| part[0] == :static ? part[1].inspect[1..-2] : "\#{#{part[3]}}" }.join}\""
+      end
+
+      # Slim escapes each interpolation unless it's written `#{{...}}`, and the static text only when
+      # the attribute value is escaped.
+      #
+      #: (String, bool) -> String
+      def interpolated_code(string, escape)
+        parts = flatten(::Slim::Interpolation.new.call([:slim, :interpolate, string])).map do |part|
+          next (escape ? CGI.escapeHTML(part[1].to_s) : part[1].to_s).inspect[1..-2] if part[0] == :static
+
+          part[2] ? "\#{ERB::Util.html_escape((#{part[3].strip}))}" : "\#{#{part[3].strip}}"
+        end
+
+        "\"#{parts.join}\""
       end
 
       #: (String, String, bool) -> class_part?

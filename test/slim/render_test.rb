@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "slim"
+require "active_support/core_ext/string/output_safety"
 
 class Herbst::Slim::RenderTest < Minitest::Spec
   include ConversionHelper
@@ -28,6 +29,13 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     end
 
     def shift_value = values.shift
+  end
+
+  class LocalsScope < Scope
+    def initialize(**locals)
+      super()
+      locals.each { |name, value| define_singleton_method(name) { value } }
+    end
   end
 
   it "renders page.slim like Slim" do
@@ -119,6 +127,51 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     end
   end
 
+  it "renders a tag with a splat like Slim" do
+    splats = [
+      { disabled: true, hidden: false, title: nil }, { title: "", tabindex: 1, role: :button }, { title: %(a"b<c&'), foo_bar: 1 },
+      { "aria-label" => "x" }, { data: { id: 1, user_name: "x", c: { e: 1 }, a: nil, b: false, t: true, ids: [1, 2] } },
+      { data: "x" }, { aria: { label: "x", hidden: true } }, { class: ["a", nil, "b"] }, { class: :a }, { id: ["a", "b"] },
+      { style: { color: "red" } }, { "class" => "s", class: "t" }, { class: "<a&b>" }, { class: "" }, { class: nil }, {}
+    ]
+    sources = [
+      %(p *opts), %(a.x#i(class=extra title="t \#{name}" disabled *opts)), %(a href=url data=opts[:data] *opts.except(:data)),
+      %(p(class==raw_html *opts)), %(p(class="a \#{{name}} \#{name}" *opts)), %(p(lang='say "hi" \\ \#{name}' *opts)),
+      %(p(class='a&b "q" \\ \#{name}' *opts)), %(p(class=='a&b "q" \#{name}' *opts))
+    ]
+
+    sources.product(splats).each { |source, opts| assert_splat_renders_like_slim(source, opts: opts) }
+  end
+
+  it "does not escape html_safe values again in a tag with a splat, like Slim in Rails" do
+    safe = "a &amp; &quot;b&quot;".html_safe
+    unsafe = "c & <d>"
+    opts = { title: safe, class: safe, data: { name: safe }, lang: unsafe }
+
+    [%(p *opts), %(p(class="\#{safe} \#{unsafe}" *opts))].each do |source|
+      assert_splat_renders_like_slim(source, use_html_safe: true, opts: opts, safe: safe, unsafe: unsafe)
+    end
+  end
+
+  it "renders an attribute of the tag that a splat repeats twice, where Slim raises" do
+    source = %(p title="a" *opts)
+    error = assert_raises(RuntimeError) { Slim::Template.new(format: :html) { source }.render(LocalsScope.new(opts: { title: "b" })) }
+
+    assert_equal "Multiple title attributes specified", error.message
+    assert_equal %(<p title="a" title="b"></p>), LocalsScope.new(opts: { title: "b" }).instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
+  end
+
+  it "raises for an attribute that the splats of a tag repeat like Slim" do
+    source = %(p *a *b)
+    scope = LocalsScope.new(a: { title: "a" }, b: { title: "b" })
+
+    expected = assert_raises(RuntimeError) { Slim::Template.new(format: :html) { source }.render(scope) }
+    actual = assert_raises(RuntimeError) { scope.instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src) }
+
+    assert_equal "Multiple title attributes specified", expected.message
+    assert_equal expected.message, actual.message
+  end
+
   private
 
   def assert_renders_like_slim(source, value)
@@ -126,6 +179,39 @@ class Herbst::Slim::RenderTest < Minitest::Spec
     actual = ValueScope.new(value).instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src)
 
     assert_equal expected, actual.force_encoding(Encoding::UTF_8)
+  end
+
+  # Slim sorts all attributes; the converted ERB puts the splats after the other attributes. So the
+  # attributes are compared sorted, and Slim's `disabled=""` counts as a bare `disabled`. Slim raises
+  # when a splat repeats an attribute written on the tag; the converted ERB renders it twice instead.
+  def assert_splat_renders_like_slim(source, use_html_safe: false, **locals)
+    expected = rendered_or_raised { Slim::Template.new(format: :html, use_html_safe: use_html_safe) { source }.render(LocalsScope.new(**locals)) }
+    actual = rendered_or_raised { LocalsScope.new(**locals).instance_eval(Herb::Engine.new(Herbst::Slim.to_erb(source), escape: true).src) }
+    message = "#{source} with #{locals}"
+
+    if expected.is_a?(RuntimeError) && actual.is_a?(RuntimeError)
+      assert_equal expected.message, actual.message, message
+    elsif expected.is_a?(RuntimeError)
+      repeated = expected.message[/\AMultiple (\S+) attributes specified\z/, 1].to_s
+      assert_equal 2, actual.to_s.scan(/ #{Regexp.escape(repeated)}[ =>]/).size, message
+    else
+      assert_equal sorted_attributes(expected.to_s), sorted_attributes(actual.to_s), message
+    end
+  end
+
+  def rendered_or_raised
+    yield.force_encoding(Encoding::UTF_8)
+  rescue RuntimeError => e
+    e
+  end
+
+  def sorted_attributes(html)
+    attribute = /[^\s=>]+(?:="[^"]*")?/
+
+    html.sub(/\A<(\w+)((?:\s+#{attribute})*)\s*>/) do
+      name, attributes = Regexp.last_match&.captures
+      "<#{name}#{attributes.to_s.scan(attribute).map { |item| " #{item.delete_suffix(%(=""))}" }.sort.join}>"
+    end
   end
 
   def without_block_whitespace(html)

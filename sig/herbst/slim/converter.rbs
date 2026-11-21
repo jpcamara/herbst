@@ -121,6 +121,16 @@ module Herbst
       # : (untyped) -> Array[Herb::AST::Node]
       def convert_attributes: (untyped) -> Array[Herb::AST::Node]
 
+      # : (untyped) -> String
+      def splat_entry: (untyped) -> String
+
+      # Ruby code that renders the splats and classes of a tag the way Slim's splat builder does. It
+      # raises when two splats set the same attribute, like Slim. When a splat repeats an attribute
+      # written on the tag, Slim raises too; here the attribute renders twice.
+      #
+      # : (Array[String]) -> String
+      def splat_code: (Array[String]) -> String
+
       # : (Hash[String, Array[untyped]], String, untyped) -> void
       def collect_attribute: (Hash[String, Array[untyped]], String, untyped) -> void
 
@@ -144,6 +154,12 @@ module Herbst
 
       # : (String) -> String
       def interpolated_source: (String) -> String
+
+      # Slim escapes each interpolation unless it's written `#{{...}}`, and the static text only when
+      # the attribute value is escaped.
+      #
+      # : (String, bool) -> String
+      def interpolated_code: (String, bool) -> String
 
       # : (String, String, bool) -> class_part?
       def code_class_part: (String, String, bool) -> class_part?
