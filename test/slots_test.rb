@@ -31,6 +31,13 @@ class Herbst::SlotsTest < Minitest::Spec
     assert_equal ["count"], slots[:server].keys
   end
 
+  it "keeps a client read for Slim attributes on a tag with a splat" do
+    slots = slim_slots("-# herb:state (count: 0)\np title=count *opts x")
+
+    assert_includes slots[:markup], %(data-herb-slot="0:element 1:attribute:title 2:element")
+    assert_equal({ "count" => [1] }, slots[:reads])
+  end
+
   it "reads Slim classes on the server" do
     assert_includes slim_slots("-# herb:state (count: 0)\np class=count x")[:markup], %(data-herb-slot="0:element 1:attribute:class")
     assert_includes slim_slots("-# herb:state (count: 0)\n.a class=count x")[:markup], %(data-herb-slot="0:attribute_interpolation:class")
