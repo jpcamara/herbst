@@ -261,6 +261,14 @@ module Herbst
         [*comment_nodes(comment), control(block_code(code), keyword(code), children, clauses, depth)]
       end
 
+      # Erubi compiles text between `<% case %>` and the first `<% when %>` into the `case`, which is a
+      # syntax error, so no text follows the `case` tag.
+      #
+      #: (String, Array[Herb::AST::Node], Array[Herbst::Converter::clause], Integer, Integer?) -> Herb::AST::ERBCaseNode
+      def control_case(code, body, clauses, depth, line)
+        super.tap { |node| node.children.reject! { |child| child.is_a?(Herb::AST::HTMLTextNode) } }
+      end
+
       # Slim also accepts the `- when` lines of a `- case` indented under it.
       #
       #: (untyped) -> [untyped, Array[untyped]]
